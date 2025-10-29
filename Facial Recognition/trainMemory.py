@@ -3,6 +3,13 @@ import os
 import numpy as np
 from pathlib import Path
 
+IMAGE_DIRECTORY = "dataset"
+RETRAIN_TERMINAL_COUNT = 30 # desired as roughly Hz, but not precisely
+
+MIN_FACE_DIMENSION = 30
+MIN_NEIGHBORS = 5
+IMAGE_SCALE_FACTOR = 1.1
+
 class FaceRecognizer:
     def __init__(self):
         self.face_cascade = cv2.CascadeClassifier(
@@ -31,6 +38,13 @@ class FaceRecognizer:
         
         print("Training face recognizer...")
         
+        # Reset values for training every time retrained
+        self.face_recognizer = cv2.face.LBPHFaceRecognizer_create()
+        self.face_data = []
+        self.face_labels = []
+        self.label_names = {}
+        self.current_label = 0
+        
         for person_name in os.listdir(dataset_path):
             person_path = os.path.join(dataset_path, person_name)
             
@@ -49,9 +63,9 @@ class FaceRecognizer:
                 gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
                 faces = self.face_cascade.detectMultiScale(
                     gray,
-                    scaleFactor=1.1,
-                    minNeighbors=5,
-                    minSize=(30, 30)
+                    scaleFactor=IMAGE_SCALE_FACTOR,
+                    minNeighbors=MIN_NEIGHBORS,
+                    minSize=(MIN_FACE_DIMENSION, MIN_FACE_DIMENSION)
                 )
                 
                 for (x, y, w, h) in faces:
@@ -70,6 +84,24 @@ class FaceRecognizer:
         print(f"Training complete! Recognized {len(self.label_names)} people")
         return True
     
+    def initialize_facial_data(self, directory):
+        
+        imageCounts = []
+        for entry in os.listdir(directory):
+            
+            path = os.path.join(directory, entry)
+            if os.path.isdir(path):
+                fileCount = 0
+                for file in os.listdir(path):
+                    fileCount += 1
+            
+                personNum = int(entry[-1])
+                while len(imageCounts) < (personNum + 1):
+                    imageCounts.append(0)
+                imageCounts[personNum] = fileCount
+            
+        return imageCounts
+    
     def recognize_from_webcam(self, confidence_threshold=70):
         """
         Real-time face recognition from webcam
@@ -82,7 +114,15 @@ class FaceRecognizer:
         
         print("Starting face recognition. Press 'q' to quit...")
         
+        retrainCount = RETRAIN_TERMINAL_COUNT
+        imageCountTracker = self.initialize_facial_data(IMAGE_DIRECTORY)
+                
         while True:
+            
+            if retrainCount==RETRAIN_TERMINAL_COUNT:
+                hasFaceData = self.train_from_directory(IMAGE_DIRECTORY)
+                retrainCount = 0
+            
             ret, frame = cap.read()
             
             if not ret:
@@ -91,24 +131,30 @@ class FaceRecognizer:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             faces = self.face_cascade.detectMultiScale(
                 gray,
-                scaleFactor=1.1,
-                minNeighbors=5,
-                minSize=(30, 30)
+                scaleFactor=IMAGE_SCALE_FACTOR,
+                minNeighbors=MIN_NEIGHBORS,
+                minSize=(MIN_FACE_DIMENSION, MIN_FACE_DIMENSION)
             )
             
             for (x, y, w, h) in faces:
-                face_roi = gray[y:y + h, x:x + w]
-                label, confidence = self.face_recognizer.predict(face_roi)
                 
-                # Determine if recognized or unknown
-                if confidence < confidence_threshold:
-                    name = self.label_names.get(label, "Unknown")
-                    confidence_text = f"{confidence:.2f}"
-                    color = (0, 255, 0)  # Green
+                if hasFaceData:
+                    face_roi = gray[y:y + h, x:x + w]
+                    label, confidence = self.face_recognizer.predict(face_roi)
+                
+                    # Determine if recognized or unknown
+                    if confidence < confidence_threshold:
+                        name = self.label_names.get(label, "Unknown")
+                        confidence_text = f"{confidence:.2f}"
+                        color = (0, 255, 0)  # Green
+                    else:
+                        name = "Unknown"
+                        confidence_text = f"{confidence:.2f}"
+                        color = (0, 0, 255)  # Red
                 else:
                     name = "Unknown"
-                    confidence_text = f"{confidence:.2f}"
-                    color = (0, 0, 255)  # Red
+                    confidence_text = "No confidence to report"
+                    color = (0, 0, 255) # Red
                 
                 # Draw rectangle and label
                 cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
@@ -121,11 +167,32 @@ class FaceRecognizer:
                     color,
                     2
                 )
+                
+                if retrainCount == RETRAIN_TERMINAL_COUNT - 1:
+                    if ret:
+                        cropped_image = frame[y:y+h, x:x+w]
+                        
+                        imagePath = ""
+                        if name == "Unknown":
+                            imagePath = f"{IMAGE_DIRECTORY}/person{len(imageCountTracker)}"
+                            os.mkdir(imagePath)
+                            imagePath = imagePath + "/0.jpg"
+                            imageCountTracker.append(1)
+                        else:
+                            personCount = int(name[-1])
+                            imagePath = f"{IMAGE_DIRECTORY}/person{personCount}/{imageCountTracker[personCount]}.jpg"
+                            imageCountTracker[personCount] += 1
+                        
+                        print(imagePath)
+                        cv2.imwrite(imagePath, cropped_image)
+                    
             
             cv2.imshow('Face Recognition', frame)
             
-            if cv2.waitKey(1) & 0xFF == ord('q'):
+            if cv2.waitKey(int(1000/RETRAIN_TERMINAL_COUNT)) & 0xFF == ord('q'): # creates a wait that will roughly update the image at 30 Hz
                 break
+            
+            retrainCount += 1
         
         cap.release()
         cv2.destroyAllWindows()
@@ -133,12 +200,7 @@ class FaceRecognizer:
 def main():
     recognizer = FaceRecognizer()
     
-    # Train from dataset (create this directory structure first)
-    if recognizer.train_from_directory("dataset"):
-        # Start recognition
-        recognizer.recognize_from_webcam(confidence_threshold=70)
-    else:
-        print("Training failed")
+    recognizer.recognize_from_webcam(confidence_threshold=70)
 
 if __name__ == "__main__":
     main()

@@ -19,7 +19,36 @@ import numpy as np
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+# Import config for device and other settings
+from people_observer.config import YOLO_DEVICE, LOOP_HZ as TARGET_LOOP_HZ_CONFIG
+
+# Test configuration constants
+# Note: Uses YOLO_DEVICE and TARGET_LOOP_HZ_CONFIG from config for consistency
+DEFAULT_CONFIDENCE_THRESHOLD = 0.25
+DEFAULT_MAX_FRAMES = 300
+WEBCAM_WIDTH = 640
+WEBCAM_HEIGHT = 480
+WARM_UP_FRAMES = 1  # Number of warm-up inferences
+
+# Visualization constants
+OVERLAY_ALPHA = 0.7
+OVERLAY_BETA = 0.3
+STATS_PANEL_WIDTH = 400
+STATS_PANEL_BASE_HEIGHT = 120
+STATS_PANEL_CONFIDENCE_EXTRA = 20
+STATS_TEXT_Y_START = 30
+STATS_TEXT_Y_SPACING = 20
+FPS_UPDATE_INTERVAL_SEC = 0.5
+FPS_WINDOW_FRAMES = 30  # Rolling window for FPS calculation
+INFERENCE_WINDOW_FRAMES = 30  # Rolling window for inference time
+CONFIDENCE_WINDOW_FRAMES = 30  # Rolling window for confidence display
+
+# Model selection constants
+MIN_RECOMMENDED_THRESHOLD = 0.25  # Don't recommend thresholds below this
+CONFIDENCE_STD_DEV_MULTIPLIER = 1.0  # Std deviations below mean for threshold
+
 # YOLOv8 model variants to test
+# Note: config.DEFAULT_YOLO_MODEL sets the model used by the main app (currently yolov8x.pt)
 YOLO_MODELS = [
     ("yolov8n.pt", "Nano"),
     ("yolov8s.pt", "Small"),
@@ -56,18 +85,18 @@ def draw_detection_box(frame: np.ndarray, x1: int, y1: int, x2: int, y2: int,
 
 def draw_stats_overlay(frame: np.ndarray, model_name: str, fps: float, 
                        avg_inference_ms: float, detection_count: int,
-                       frame_count: int):
+                       frame_count: int, avg_confidence: float = None):
     """Draw performance statistics overlay."""
     h, w = frame.shape[:2]
     
     # Create semi-transparent overlay panel
     overlay = frame.copy()
-    panel_h = 120
-    cv2.rectangle(overlay, (10, 10), (400, panel_h), COLOR_STATS_BG, -1)
-    frame_with_overlay = cv2.addWeighted(overlay, 0.7, frame, 0.3, 0)
+    panel_h = STATS_PANEL_BASE_HEIGHT + (STATS_PANEL_CONFIDENCE_EXTRA if avg_confidence is not None else 0)
+    cv2.rectangle(overlay, (10, 10), (STATS_PANEL_WIDTH, panel_h), COLOR_STATS_BG, -1)
+    frame_with_overlay = cv2.addWeighted(overlay, OVERLAY_ALPHA, frame, OVERLAY_BETA, 0)
     
     # Draw stats text
-    y_offset = 30
+    y_offset = STATS_TEXT_Y_START
     stats_lines = [
         f"Model: {model_name}",
         f"FPS: {fps:.1f}",
@@ -76,10 +105,13 @@ def draw_stats_overlay(frame: np.ndarray, model_name: str, fps: float,
         f"Frame: {frame_count}",
     ]
     
+    if avg_confidence is not None:
+        stats_lines.append(f"Avg Confidence: {avg_confidence:.2f}")
+    
     for line in stats_lines:
         cv2.putText(frame_with_overlay, line, (20, y_offset), 
                    FONT, 0.6, COLOR_TEXT, 2)
-        y_offset += 20
+        y_offset += STATS_TEXT_Y_SPACING
     
     # Draw instructions
     instructions = "Press 'q' to quit | 'n' for next model | 's' to save frame"
@@ -93,8 +125,8 @@ def draw_stats_overlay(frame: np.ndarray, model_name: str, fps: float,
 
 
 def test_model_on_webcam(model_name: str, description: str, 
-                         confidence_threshold: float = 0.25,
-                         max_frames: int = 300) -> Dict:
+                         confidence_threshold: float = DEFAULT_CONFIDENCE_THRESHOLD,
+                         max_frames: int = DEFAULT_MAX_FRAMES) -> Dict:
     """Test a single YOLO model on webcam feed.
     
     Returns:
@@ -119,14 +151,15 @@ def test_model_on_webcam(model_name: str, description: str,
             return {'error': 'Webcam not available'}
         
         # Set camera resolution
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, WEBCAM_WIDTH)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, WEBCAM_HEIGHT)
         
-        print("Webcam opened (640x480)")
+        print(f"Webcam opened ({WEBCAM_WIDTH}x{WEBCAM_HEIGHT})"))
         
         # Performance tracking
         inference_times: List[float] = []
         frame_times: List[float] = []
+        confidence_scores: List[float] = []  # Track all detection confidences
         total_detections = 0
         frame_count = 0
         
@@ -134,7 +167,7 @@ def test_model_on_webcam(model_name: str, description: str,
         ret, warmup_frame = cap.read()
         if ret:
             _ = model.predict(warmup_frame, conf=confidence_threshold, 
-                            verbose=False, device='cpu')
+                            verbose=False, device=DEVICE)
             print("Warm-up inference complete")
         
         # Main loop
@@ -152,7 +185,7 @@ def test_model_on_webcam(model_name: str, description: str,
             # Run inference
             inference_start = time.time()
             results = model.predict(frame, conf=confidence_threshold, 
-                                   verbose=False, device='cpu')
+                                   verbose=False, device=YOLO_DEVICE)
             inference_time = (time.time() - inference_start) * 1000  # ms
             inference_times.append(inference_time)
             
@@ -167,6 +200,9 @@ def test_model_on_webcam(model_name: str, description: str,
                     class_id = int(box.cls[0])
                     class_name = model.names[class_id]
                     
+                    # Track confidence scores
+                    confidence_scores.append(confidence)
+                    
                     # Draw detection
                     draw_detection_box(frame, x1, y1, x2, y2, 
                                       class_name, confidence, inference_time)
@@ -177,16 +213,17 @@ def test_model_on_webcam(model_name: str, description: str,
             frame_time = time.time() - frame_start
             frame_times.append(frame_time)
             
-            if time.time() - last_fps_time > 0.5:  # Update FPS every 0.5s
+            if time.time() - last_fps_time > FPS_UPDATE_INTERVAL_SEC:
                 if frame_times:
-                    fps = 1.0 / (sum(frame_times[-30:]) / min(30, len(frame_times)))
+                    fps = 1.0 / (sum(frame_times[-FPS_WINDOW_FRAMES:]) / min(FPS_WINDOW_FRAMES, len(frame_times)))
                 last_fps_time = time.time()
             
             # Draw stats overlay
-            avg_inference = np.mean(inference_times[-30:]) if inference_times else 0
+            avg_inference = np.mean(inference_times[-INFERENCE_WINDOW_FRAMES:]) if inference_times else 0
+            avg_conf = np.mean(confidence_scores[-CONFIDENCE_WINDOW_FRAMES:]) if confidence_scores else None
             frame_with_stats = draw_stats_overlay(
                 frame, model_name, fps, avg_inference, 
-                detection_count, frame_count
+                detection_count, frame_count, avg_conf
             )
             
             # Display frame
@@ -230,6 +267,13 @@ def test_model_on_webcam(model_name: str, description: str,
                 'detections_per_frame': total_detections / frame_count if frame_count > 0 else 0,
             }
             
+            # Add confidence statistics if we have detections
+            if confidence_scores:
+                metrics['avg_confidence'] = np.mean(confidence_scores)
+                metrics['min_confidence'] = np.min(confidence_scores)
+                metrics['max_confidence'] = np.max(confidence_scores)
+                metrics['std_confidence'] = np.std(confidence_scores)
+            
             # Print summary
             print(f"\nPerformance Summary:")
             print(f"  Frames processed: {metrics['frames_processed']}")
@@ -239,6 +283,12 @@ def test_model_on_webcam(model_name: str, description: str,
             print(f"  Min/Max inference: {metrics['min_inference_ms']:.1f}ms / {metrics['max_inference_ms']:.1f}ms")
             print(f"  Std deviation: {metrics['std_inference_ms']:.1f}ms")
             print(f"  Average FPS: {metrics['avg_fps']:.1f}")
+            
+            if confidence_scores:
+                print(f"\nConfidence Statistics:")
+                print(f"  Average: {metrics['avg_confidence']:.3f}")
+                print(f"  Min/Max: {metrics['min_confidence']:.3f} / {metrics['max_confidence']:.3f}")
+                print(f"  Std deviation: {metrics['std_confidence']:.3f}")
             
             return metrics
         else:
@@ -300,6 +350,8 @@ def main():
             print(f"   Avg inference: {result['avg_inference_ms']:.1f}ms")
             print(f"   Avg FPS: {result['avg_fps']:.1f}")
             print(f"   Detections/frame: {result['detections_per_frame']:.2f}")
+            if 'avg_confidence' in result:
+                print(f"   Avg confidence: {result['avg_confidence']:.3f}")
         
         print("\nRecommendations:")
         fastest = sorted_results[0]
@@ -312,13 +364,24 @@ def main():
             print(f"  - Speed difference: {speedup:.1f}x")
         
         # Recommend model based on target FPS
-        print(f"\n  For real-time tracking at 7 Hz:")
-        target_ms = 1000 / 7  # ~143ms budget per frame
+        print(f"\n  For real-time tracking at {TARGET_LOOP_HZ_CONFIG} Hz:")
+        target_ms = 1000 / TARGET_LOOP_HZ_CONFIG
         suitable = [r for r in sorted_results if r['avg_inference_ms'] < target_ms]
         if suitable:
             print(f"    Suitable models: {', '.join(r['model_name'] for r in suitable)}")
         else:
             print(f"    WARNING: No models meet target (all > {target_ms:.0f}ms)")
+        
+        # Confidence threshold recommendations
+        results_with_conf = [r for r in successful_results if 'avg_confidence' in r]
+        if results_with_conf:
+            print(f"\n  Confidence Threshold Recommendations:")
+            print(f"  (to reduce false positives, use threshold = avg - {CONFIDENCE_STD_DEV_MULTIPLIER}*std_dev)")
+            for result in results_with_conf:
+                avg = result['avg_confidence']
+                std = result['std_confidence']
+                recommended = max(MIN_RECOMMENDED_THRESHOLD, avg - (CONFIDENCE_STD_DEV_MULTIPLIER * std))
+                print(f"    {result['model_name']}: >= {recommended:.2f} (avg={avg:.3f}, std={std:.3f})")
     
     else:
         print("\nWARNING: No successful test runs")

@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # YOLOv8 model variants to test
+# Note: config.DEFAULT_YOLO_MODEL sets the model used by the main app
 YOLO_MODELS = [
     ("yolov8n.pt", "Nano - fastest, least accurate"),
     ("yolov8s.pt", "Small"),

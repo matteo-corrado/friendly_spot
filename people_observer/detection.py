@@ -10,11 +10,22 @@ Functions/classes
 """
 from dataclasses import dataclass
 from typing import List, Tuple
+import logging
 
 import numpy as np
+import torch
 from ultralytics import YOLO
 
-from .config import PERSON_CLASS_ID
+from .config import (
+    PERSON_CLASS_ID,
+    DEFAULT_YOLO_MODEL,
+    YOLO_IMG_SIZE,
+    MIN_CONFIDENCE,
+    YOLO_IOU_THRESHOLD,
+    YOLO_DEVICE
+)
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -25,12 +36,23 @@ class Detection:
 
 
 class YoloDetector:
-    def __init__(self, model_path: str = "yolov8n.pt", imgsz: int = 640, conf: float = 0.3, iou: float = 0.5):
+    def __init__(self, model_path: str = DEFAULT_YOLO_MODEL, imgsz: int = YOLO_IMG_SIZE, 
+                 conf: float = MIN_CONFIDENCE, iou: float = YOLO_IOU_THRESHOLD, device: str = YOLO_DEVICE):
         self.model = YOLO(model_path)
         self.model.fuse()
         self.imgsz = imgsz
         self.conf = conf
         self.iou = iou
+        
+        # Determine device (GPU if available, fallback to CPU)
+        if device == "cuda" and torch.cuda.is_available():
+            self.device = "cuda"
+            logger.info(f"YOLO using GPU: {torch.cuda.get_device_name(0)}")
+        else:
+            self.device = "cpu"
+            if device == "cuda":
+                logger.warning("CUDA requested but not available, falling back to CPU")
+            logger.info("YOLO using CPU")
 
     def predict_batch(self, bgr_list: List[np.ndarray]) -> List[List[Detection]]:
         """Run YOLO on a batch of BGR images.
@@ -41,7 +63,9 @@ class YoloDetector:
         out: List[List[Detection]] = []
         results = self.model.predict(
             bgr_list, imgsz=self.imgsz, conf=self.conf, iou=self.iou,
-            classes=[PERSON_CLASS_ID], device=0, half=True, verbose=False
+            classes=[PERSON_CLASS_ID], device=self.device, 
+            half=(self.device == "cuda"),  # FP16 only on GPU
+            verbose=False
         )
         for r, img in zip(results, bgr_list):
             dets: List[Detection] = []

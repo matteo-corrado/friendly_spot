@@ -50,7 +50,7 @@ def ensure_clients(robot) -> Tuple[ImageClient, CompositorClient, StreamQualityC
 def configure_stream(robot, cfg: RuntimeConfig):
     """Configure compositor screen and target bitrate for Spot CAM streaming."""
     # Compositor screen and WebRTC stream bitrate
-    robot.ensure_client(CompositorClient.default_service_name).set_screen(cfg.compositor_screen)
+    robot.ensure_client(CompositorClient.default_service_name).set_screen(cfg.ptz.compositor_screen)
     robot.ensure_client(StreamQualityClient.default_service_name).set_stream_params(
-        target_bitrate=cfg.target_bitrate
+        target_bitrate=cfg.ptz.target_bitrate
     )

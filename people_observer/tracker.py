@@ -1,8 +1,8 @@
-"""Main orchestrator: frames → detections → selection → target → PTZ.
+"""Main orchestrator: frames -> detections -> selection -> target -> PTZ.
 
 Modes
 - bearing: bearing-only mapping using HFOV + camera yaw (prefer yaw from transforms).
-- transform: compute pixel→ray using pinhole intrinsics, rotate ray into BODY, then derive pan/tilt.
+- transform: compute pixel->ray using pinhole intrinsics, rotate ray into BODY, then derive pan/tilt.
 
 Function
 - run_loop(robot, image_client, ptz_client, cfg):
@@ -13,12 +13,14 @@ Function
     4) Compute pan/tilt (bearing or transform mode) and command PTZ.
     5) TODO: Handle additional people in group interactions (policy to be defined).
 """
+import logging
 import time
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
+import cv2
 import numpy as np
 
-from .config import RuntimeConfig
+from .config import RuntimeConfig, FALLBACK_HFOV_DEG
 from .cameras import get_frames
 from .detection import YoloDetector, Detection
 from .geometry import (
@@ -29,6 +31,9 @@ from .geometry import (
     transform_direction,
 )
 from .ptz_control import set_ptz
+from .visualization import show_detections_grid
+
+logger = logging.getLogger(__name__)
 
 
 def pick_largest(dets: List[Detection]):
@@ -60,10 +65,19 @@ def estimate_detection_depth_m(resp, det: Detection) -> float:
 
 
 def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig):
-    detector = YoloDetector(conf=cfg.min_conf)
+    detector = YoloDetector(
+        model_path=cfg.yolo.model_path,
+        imgsz=cfg.yolo.img_size,
+        conf=cfg.yolo.min_confidence,
+        iou=cfg.yolo.iou_threshold,
+        device=cfg.yolo.device
+    )
     period = 1.0 / max(1, cfg.loop_hz)
+    
+    iteration = 0
 
     while True:
+        iteration += 1
         start = time.time()
         frames, responses = get_frames(image_client, cfg.sources)
         if not frames:
@@ -77,7 +91,10 @@ def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig):
 
         # Rank candidates by (depth if available) else by area
         best = None  # (name, det, width, resp, rank_value)
+        detections_by_camera: Dict[str, List[Detection]] = {}
+        
         for name, dets, img, resp in zip(names, all_dets, imgs, responses):
+            detections_by_camera[name] = dets  # Store for visualization
             if not dets:
                 continue
             # attach source name into Detection
@@ -99,22 +116,35 @@ def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig):
                 if cand is None:
                     continue
                 area = cand.bbox_xywh[2] * cand.bbox_xywh[3]
-                if area < cfg.min_area_px:
+                if area < cfg.yolo.min_area_px:
                     continue
-                rank_value = -area  # more area is better → use negative for min-compare
+                rank_value = -area  # more area is better -> use negative for min-compare
 
             if best is None or rank_value < best[4]:
                 best = (name, cand, img.shape[1], resp, rank_value)
 
+        # Visualize detections if enabled
+        if cfg.visualize:
+            key = show_detections_grid(frames, detections_by_camera)
+            if key == ord('q') or key == 27:  # 'q' or ESC to quit
+                logger.info("User requested quit via visualization window")
+                break
+
         if best is None:
             # No person found; skip
+            if cfg.dry_run:
+                logger.info("No person detected in any camera")
             time.sleep(max(0, period - (time.time() - start)))
             continue
 
         name, det, img_w, resp, _ = best
+        
+        if cfg.dry_run:
+            x, y, w, h = det.bbox_xywh
+            logger.info(f"Detection: camera={name}, confidence={det.conf:.2f}, bbox=({x:.0f},{y:.0f},{w:.0f},{h:.0f})")
 
         if cfg.observer_mode.mode == "transform":
-            # Transform-based pan/tilt: pixel → ray (camera), rotate to BODY
+            # Transform-based pan/tilt: pixel -> ray (camera), rotate to BODY
             cx, cy = bbox_center(det.bbox_xywh)
             try:
                 d_cam = pixel_to_ray_pinhole(resp, cx, cy)
@@ -135,9 +165,9 @@ def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig):
                                                          resp.shot.frame_name_image_sensor)
                 except Exception:
                     cam_yaw = 0.0
-                hfov = cfg.hfov_deg.get(name, 133.0)
+                hfov = cfg.hfov_deg.get(name, FALLBACK_HFOV_DEG)
                 pan_deg = bearing_from_detection_bearing_only(name, det.bbox_xywh, img_w, hfov, cam_yaw)
-                tilt_deg = cfg.default_tilt_deg
+                tilt_deg = cfg.ptz.default_tilt_deg
         else:
             # Bearing-only yaw offset via HFOV mapping with transform-derived camera yaw
             try:
@@ -145,11 +175,11 @@ def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig):
                                                      resp.shot.frame_name_image_sensor)
             except Exception:
                 cam_yaw = 0.0
-            hfov = cfg.hfov_deg.get(name, 133.0)
+            hfov = cfg.hfov_deg.get(name, FALLBACK_HFOV_DEG)
             pan_deg = bearing_from_detection_bearing_only(name, det.bbox_xywh, img_w, hfov, cam_yaw)
-            tilt_deg = cfg.default_tilt_deg
+            tilt_deg = cfg.ptz.default_tilt_deg
 
-        set_ptz(ptz_client, cfg.ptz_name, pan_deg, tilt_deg, 0.0)
+        set_ptz(ptz_client, cfg.ptz.name, pan_deg, tilt_deg, 0.0, dry_run=cfg.dry_run)
 
         # TODO: Additional people handling
         # If multiple people are present, we may:
@@ -161,3 +191,12 @@ def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig):
         sleep_left = period - (time.time() - start)
         if sleep_left > 0:
             time.sleep(sleep_left)
+        
+        # Exit after first iteration if in once mode
+        if cfg.once:
+            logger.info(f"ONCE MODE: Completed iteration {iteration}, exiting")
+            break
+    
+    # Cleanup OpenCV windows
+    if cfg.visualize:
+        cv2.destroyAllWindows()

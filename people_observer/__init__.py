@@ -7,7 +7,7 @@ Modules
 - detection: YOLO detector wrapper and detection dataclass
 - geometry: bearing-only mapping and transform-based pan/tilt math
 - ptz_control: PTZ command helpers with smoothing
-- tracker: main orchestrator (frames → detections → target → PTZ)
+- tracker: main orchestrator (frames -> detections -> target -> PTZ)
 - config: constants and defaults (camera lists, loop params)
 
 Auth is provided via venv.

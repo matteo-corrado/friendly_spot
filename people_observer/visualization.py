@@ -223,7 +223,7 @@ def save_annotated_frames(frames_dict: Dict[str, np.ndarray],
         # Create directory if doesn't exist
         os.makedirs(abs_output_dir, exist_ok=True)
         
-        # Add timestamp to make filenames unique (never overwrite)
+        # Add timestamp to make filenames unique
         from datetime import datetime
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]  # milliseconds
         

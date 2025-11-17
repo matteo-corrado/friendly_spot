@@ -1,17 +1,18 @@
 """Main orchestrator: frames -> detections -> selection -> target -> PTZ.
 
 Modes
-- bearing: bearing-only mapping using HFOV + camera yaw (prefer yaw from transforms).
-- transform: compute pixel->ray using pinhole intrinsics, rotate ray into BODY, then derive pan/tilt.
+- bearing: bearing-only mapping using camera intrinsics (Kannala-Brandt or pinhole)
+    with frame transforms. Falls back to simple HFOV projection if intrinsics unavailable.
+- transform: compute pixel->ray using SDK intrinsics, rotate ray into BODY, derive pan/tilt.
 
 Function
 - run_loop(robot, image_client, ptz_client, cfg):
-    1) Fetch frames from surround cameras.
-    2) Run YOLO detections.
-    3) Select target person by nearest depth (if a depth image is available for that source);
-       fallback to largest area.
-    4) Compute pan/tilt (bearing or transform mode) and command PTZ.
-    5) TODO: Handle additional people in group interactions (policy to be defined).
+    1) Fetch camera intrinsics from robot (once at startup).
+    2) Fetch frames from surround cameras.
+    3) Run YOLO detections.
+    4) Select target person by nearest depth (if available); fallback to largest area.
+    5) Compute pan/tilt using SDK intrinsics and frame transforms, command PTZ.
+    6) TODO: Handle additional people in group interactions (policy to be defined).
 """
 import logging
 import time
@@ -20,16 +21,10 @@ from typing import List, Tuple, Dict
 import cv2
 import numpy as np
 
-from .config import RuntimeConfig, FALLBACK_HFOV_DEG
-from .cameras import get_frames
+from .config import RuntimeConfig
+from . import cameras
+from . import geometry
 from .detection import YoloDetector, Detection
-from .geometry import (
-    bbox_center,
-    bearing_from_detection_bearing_only,
-    camera_yaw_from_transforms,
-    pixel_to_ray_pinhole,
-    transform_direction,
-)
 from .ptz_control import set_ptz
 from .visualization import show_detections_grid
 
@@ -65,6 +60,18 @@ def estimate_detection_depth_m(resp, det: Detection) -> float:
 
 
 def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig):
+    # Fetch camera intrinsics from robot (once at startup)
+    logger.info("Fetching camera intrinsics from robot...")
+    image_sources = cameras.fetch_image_sources(image_client)
+    
+    # Log intrinsics for all cameras we'll use
+    for source_name in cfg.sources:
+        intrinsics = cameras.get_camera_intrinsics(source_name, image_sources)
+        if intrinsics:
+            logger.info(f"{source_name}: {intrinsics['model']} model (fx={intrinsics['fx']:.1f}, fy={intrinsics['fy']:.1f})")
+        else:
+            logger.warning(f"{source_name}: no intrinsics available, will use simple fallback")
+    
     detector = YoloDetector(
         model_path=cfg.yolo.model_path,
         imgsz=cfg.yolo.img_size,
@@ -79,7 +86,7 @@ def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig):
     while True:
         iteration += 1
         start = time.time()
-        frames, responses = get_frames(image_client, cfg.sources)
+        frames, responses = cameras.get_frames(image_client, cfg.sources)
         if not frames:
             time.sleep(period)
             continue
@@ -129,6 +136,19 @@ def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig):
             if key == ord('q') or key == 27:  # 'q' or ESC to quit
                 logger.info("User requested quit via visualization window")
                 break
+        
+        # Save annotated frames if enabled
+        if cfg.save_images:
+            import os
+            from .visualization import save_annotated_frames
+            abs_path = os.path.abspath(cfg.save_images)
+            logger.info(f"Calling save_annotated_frames: dir={abs_path}, iteration={iteration}, frames={len(frames)}")
+            save_annotated_frames(frames, detections_by_camera, cfg.save_images, iteration)
+
+        # Check once mode before continuing
+        if cfg.once:
+            logger.info(f"ONCE MODE: Completed iteration {iteration}, exiting")
+            break
 
         if best is None:
             # No person found; skip
@@ -139,47 +159,74 @@ def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig):
 
         name, det, img_w, resp, _ = best
         
+        # Get camera intrinsics for this source
+        intrinsics = cameras.get_camera_intrinsics(name, image_sources)
+        cam_yaw_deg = geometry.get_camera_yaw_fallback(name)
+        
+        # Log intrinsics status
+        if intrinsics:
+            logger.debug(f"Intrinsics available for {name}: model={intrinsics.get('model')}")
+        else:
+            logger.warning(f"No intrinsics available for {name} - will use simple projection fallback")
+        
         if cfg.dry_run:
             x, y, w, h = det.bbox_xywh
             logger.info(f"Detection: camera={name}, confidence={det.conf:.2f}, bbox=({x:.0f},{y:.0f},{w:.0f},{h:.0f})")
 
-        if cfg.observer_mode.mode == "transform":
-            # Transform-based pan/tilt: pixel -> ray (camera), rotate to BODY
-            cx, cy = bbox_center(det.bbox_xywh)
-            try:
-                d_cam = pixel_to_ray_pinhole(resp, cx, cy)
-                d_body = transform_direction(resp.shot.transforms_snapshot,
-                                             resp.shot.frame_name_image_sensor,
-                                             "body",  # BODY frame
-                                             d_cam)
-                # BODY axes: x forward, y left, z up
-                pan_rad = float(np.arctan2(d_body[1], d_body[0]))
-                hyp = float(np.hypot(d_body[0], d_body[1]))
-                tilt_rad = float(np.arctan2(-d_body[2], hyp))
-                pan_deg = np.degrees(pan_rad)
-                tilt_deg = np.degrees(tilt_rad)
-            except Exception:
-                # Fallback to bearing-only if intrinsics/frames missing
-                try:
-                    cam_yaw = camera_yaw_from_transforms(resp.shot.transforms_snapshot,
-                                                         resp.shot.frame_name_image_sensor)
-                except Exception:
-                    cam_yaw = 0.0
-                hfov = cfg.hfov_deg.get(name, FALLBACK_HFOV_DEG)
-                pan_deg = bearing_from_detection_bearing_only(name, det.bbox_xywh, img_w, hfov, cam_yaw)
-                tilt_deg = cfg.ptz.default_tilt_deg
-        else:
-            # Bearing-only yaw offset via HFOV mapping with transform-derived camera yaw
-            try:
-                cam_yaw = camera_yaw_from_transforms(resp.shot.transforms_snapshot,
-                                                     resp.shot.frame_name_image_sensor)
-            except Exception:
-                cam_yaw = 0.0
-            hfov = cfg.hfov_deg.get(name, FALLBACK_HFOV_DEG)
-            pan_deg = bearing_from_detection_bearing_only(name, det.bbox_xywh, img_w, hfov, cam_yaw)
-            tilt_deg = cfg.ptz.default_tilt_deg
+        # Compute PTZ angles from pixel detection
+        cx = det.bbox_xywh[0] + det.bbox_xywh[2] / 2.0
+        cy = det.bbox_xywh[1] + det.bbox_xywh[3] / 2.0
+        
+        # Try transform mode first (accurate), fall back to simple projection if unavailable
+        try:
+            if cfg.observer_mode == "transform" and intrinsics:
+                # Use full 3D transform pipeline with intrinsics
+                ptz_pan_deg, ptz_tilt_deg = geometry.pixel_to_ptz_angles_transform(
+                    cx, cy,
+                    intrinsics,
+                    resp,
+                    robot
+                )
+            else:
+                # Use simple geometric projection (fallback)
+                if cfg.observer_mode == "transform":
+                    if not intrinsics:
+                        logger.warning(f"FALLBACK TO SIMPLE PROJECTION: Transform mode requested but no intrinsics available for {name}")
+                    else:
+                        logger.warning(f"FALLBACK TO SIMPLE PROJECTION: Transform mode requested but intrinsics invalid for {name}")
+                else:
+                    logger.info(f"Using simple projection mode (bearing mode explicitly selected)")
+                
+                # Calculate HFOV from intrinsics if available, otherwise use fallback
+                if intrinsics:
+                    hfov = cameras.calculate_hfov_from_intrinsics(intrinsics)
+                else:
+                    hfov = 133.0  # Fisheye fallback
+                    logger.warning(f"No intrinsics for {name}, using fallback HFOV={hfov}°")
+                
+                ptz_pan_deg, ptz_tilt_deg = geometry.pixel_to_ptz_angles_simple(
+                    cx, cy,
+                    img_w,
+                    frames[name].shape[0],  # img_height
+                    hfov,
+                    cam_yaw_deg,
+                    cfg.ptz.default_tilt_deg
+                )
+        except Exception as e:
+            logger.error(f"Failed to compute PTZ angles: {e}, using simple projection fallback")
+            hfov = 133.0
+            ptz_pan_deg, ptz_tilt_deg = geometry.pixel_to_ptz_angles_simple(
+                cx, cy, img_w, frames[name].shape[0], hfov, cam_yaw_deg, cfg.ptz.default_tilt_deg
+            )
+        
+        # Log and send PTZ command
+        logger.info(f"PTZ Command: pan={ptz_pan_deg:.2f}°, tilt={ptz_tilt_deg:.2f}°, zoom={cfg.ptz.default_zoom:.2f} (camera={name}, conf={det.conf:.2f})")
+        set_ptz(ptz_client, cfg.ptz.name, ptz_pan_deg, ptz_tilt_deg, cfg.ptz.default_zoom, dry_run=cfg.dry_run)
 
-        set_ptz(ptz_client, cfg.ptz.name, pan_deg, tilt_deg, 0.0, dry_run=cfg.dry_run)
+        # Exit after detection if in exit-on-detection mode
+        if cfg.exit_on_detection:
+            logger.info(f"EXIT-ON-DETECTION MODE: Person detected and PTZ commanded, exiting")
+            break
 
         # TODO: Additional people handling
         # If multiple people are present, we may:
@@ -191,11 +238,6 @@ def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig):
         sleep_left = period - (time.time() - start)
         if sleep_left > 0:
             time.sleep(sleep_left)
-        
-        # Exit after first iteration if in once mode
-        if cfg.once:
-            logger.info(f"ONCE MODE: Completed iteration {iteration}, exiting")
-            break
     
     # Cleanup OpenCV windows
     if cfg.visualize:

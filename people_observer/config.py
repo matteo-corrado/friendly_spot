@@ -1,9 +1,12 @@
 """Configuration for the people observer.
 
-Accurate camera source names come from Boston Dynamics documentation and examples.
-Avoid hardcoding HFOVs/yaws; prefer using transforms when possible. For bearing-only
-mapping from pixel X to yaw, HFOVs are needed; keep them in one place and update
-per official docs for your robot/camera firmware.
+Camera intrinsics (focal length, distortion coefficients) are now queried dynamically
+from the Spot SDK's ImageSource proto at runtime. This supports both:
+- Kannala-Brandt fisheye model (5 surround cameras with k1-k4 distortion)
+- Pinhole model (PTZ, hand camera)
+
+The values below serve as fallbacks only if intrinsics are unavailable.
+Prefer SDK-provided intrinsics via cameras.fetch_image_sources() for accuracy.
 """
 import os
 from dataclasses import dataclass, field
@@ -19,9 +22,9 @@ SURROUND_SOURCES: List[str] = [
     "back_fisheye_image",
 ]
 
-# Optional: approximate HFOVs per camera for bearing-only mapping.
-# WARNING: Replace with values from BD documentation for your hardware/firmware.
-FALLBACK_HFOV_DEG = 133.0  # Default HFOV if camera-specific value not available
+# Fallback HFOV (used only if SDK intrinsics unavailable)
+# Actual HFOV calculated from focal length via cameras.calculate_hfov_from_intrinsics()
+FALLBACK_HFOV_DEG = 133.0  # Empirical fisheye HFOV fallback
 SURROUND_HFOV_DEG: Dict[str, float] = {
     "frontleft_fisheye_image": 133.0,
     "frontright_fisheye_image": 133.0,
@@ -31,8 +34,9 @@ SURROUND_HFOV_DEG: Dict[str, float] = {
 }
 
 # Camera yaw offsets in robot frame (degrees, clockwise from front)
-# WARNING: Update these based on your robot's actual camera mounting angles
-SURROUND_YAW_DEG: Dict[str, float] = {
+# These are geometric constants based on Spot's camera mounting positions
+# Could be computed from frame transforms, but hardcoded for simplicity
+CAM_YAW_DEG: Dict[str, float] = {
     "frontleft_fisheye_image": 50.0,
     "frontright_fisheye_image": -50.0,
     "left_fisheye_image": 90.0,
@@ -41,8 +45,10 @@ SURROUND_YAW_DEG: Dict[str, float] = {
 }
 
 # PTZ/compositor/stream settings
-PTZ_NAME = "ptz"
-COMPOSITOR_SCREEN = "mech"
+# Valid PTZ names: 'mech' (mechanical), 'digi' (digital), 'full_digi', 'overlay_digi', 'full_pano', 'overlay_pano', 'sv600'
+# Valid compositor screens: 'mech_full', 'digi_full', 'mech', 'digi', 'mech_overlay', etc.
+PTZ_NAME = "mech"  # Mechanical PTZ control
+COMPOSITOR_SCREEN = "mech_full"  # Full mechanical PTZ view
 TARGET_BITRATE = 2_000_000
 
 # Detection thresholds
@@ -59,9 +65,14 @@ PAN_DEADBAND_DEG = 1.0
 TILT_DEADBAND_DEG = 1.0
 MAX_DEG_PER_STEP = 8.0
 DEFAULT_TILT_DEG = -5.0
+DEFAULT_ZOOM = 1.0  # Zoom range [1.0, 30.0], 1.0 = no zoom
+TRANSFORM_MODE = "transform"  # or "bearing"
 
 # YOLO model settings
 DEFAULT_YOLO_MODEL = "yolov8x.pt"  # extra large model for accuracy
+# Models should be in people_observer/ directory (same as this config file)
+YOLO_MODELS_DIR = Path(__file__).parent
+DEFAULT_YOLO_MODEL = str(YOLO_MODELS_DIR / DEFAULT_YOLO_MODEL)  # Uses defined path
 YOLO_IMG_SIZE = 640
 YOLO_DEVICE = "cuda"  # or "cuda" if GPU available
 
@@ -74,15 +85,6 @@ RETRY_DELAY_SEC = 2.0
 # Logging
 LOG_LEVEL = os.getenv("PEOPLE_OBSERVER_LOG_LEVEL", "INFO")
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-
-@dataclass
-class ObserverMode:
-    """Observation mode: 'bearing' uses HFOV+yaw, 'transform' uses frame transforms."""
-    mode: str = "bearing"
-    
-    def __post_init__(self):
-        if self.mode not in ["bearing", "transform"]:
-            raise ValueError(f"Invalid mode '{self.mode}'. Must be 'bearing' or 'transform'.")
 
 @dataclass
 class YOLOConfig:
@@ -127,6 +129,7 @@ class PTZConfig:
     tilt_deadband_deg: float = TILT_DEADBAND_DEG
     max_deg_per_step: float = MAX_DEG_PER_STEP
     default_tilt_deg: float = DEFAULT_TILT_DEG
+    default_zoom: float = DEFAULT_ZOOM
     
     def __post_init__(self):
         if self.target_bitrate <= 0:
@@ -141,9 +144,9 @@ class RuntimeConfig:
     """Main runtime configuration aggregating all subsystems."""
     sources: List[str] = field(default_factory=lambda: SURROUND_SOURCES)
     hfov_deg: Dict[str, float] = field(default_factory=lambda: SURROUND_HFOV_DEG)
-    yaw_deg: Dict[str, float] = field(default_factory=lambda: SURROUND_YAW_DEG)
+    yaw_deg: Dict[str, float] = field(default_factory=lambda: CAM_YAW_DEG)
     loop_hz: int = LOOP_HZ
-    observer_mode: ObserverMode = field(default_factory=ObserverMode)
+    observer_mode: str = TRANSFORM_MODE  # 'transform' or 'bearing'
     yolo: YOLOConfig = field(default_factory=YOLOConfig)
     connection: ConnectionConfig = field(default_factory=ConnectionConfig)
     ptz: PTZConfig = field(default_factory=PTZConfig)
@@ -151,11 +154,15 @@ class RuntimeConfig:
     log_format: str = LOG_FORMAT
     dry_run: bool = False  # Skip PTZ commands, log detections only
     once: bool = False  # Run only one detection cycle
+    exit_on_detection: bool = False  # Exit after successfully detecting and commanding PTZ to a person
     visualize: bool = False  # Show live detection visualization with OpenCV
+    save_images: Optional[str] = None  # Directory path to save annotated frames (None = disabled)
     
     def __post_init__(self):
         if self.loop_hz <= 0:
             raise ValueError(f"loop_hz must be positive, got {self.loop_hz}")
+        if self.observer_mode not in ["bearing", "transform"]:
+            raise ValueError(f"Invalid observer_mode '{self.observer_mode}'. Must be 'bearing' or 'transform'.")
         # Validate that all sources have HFOV and yaw entries
         for src in self.sources:
             if src not in self.hfov_deg:

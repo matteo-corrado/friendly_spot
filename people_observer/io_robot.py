@@ -17,7 +17,7 @@ from typing import Tuple
 
 import bosdyn.client
 import bosdyn.client.util
-from bosdyn.client import create_standard_sdk
+from bosdyn.client import create_standard_sdk, spot_cam
 from bosdyn.client.image import ImageClient
 from bosdyn.client.spot_cam.compositor import CompositorClient
 from bosdyn.client.spot_cam.streamquality import StreamQualityClient
@@ -32,6 +32,10 @@ def connect(hostname: str):
     Output: robot instance with time sync performed.
     """
     sdk = create_standard_sdk("PeopleObserver")
+    
+    # Register all Spot CAM service clients (CompositorClient, StreamQualityClient, PtzClient, etc.)
+    spot_cam.register_all_service_clients(sdk)
+    
     robot = sdk.create_robot(hostname)
     # Rely on env-based auth (Activate.ps1), no user/pass CLI
     bosdyn.client.util.authenticate(robot)

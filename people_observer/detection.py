@@ -38,6 +38,15 @@ class Detection:
 class YoloDetector:
     def __init__(self, model_path: str = DEFAULT_YOLO_MODEL, imgsz: int = YOLO_IMG_SIZE, 
                  conf: float = MIN_CONFIDENCE, iou: float = YOLO_IOU_THRESHOLD, device: str = YOLO_DEVICE):
+        # Verify model file exists
+        import os
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(
+                f"YOLO model not found at {model_path}. "
+                f"Please download model to {os.path.dirname(model_path)}/"
+            )
+        
+        logger.info(f"Loading YOLO model from {model_path}")
         self.model = YOLO(model_path)
         self.model.fuse()
         self.imgsz = imgsz

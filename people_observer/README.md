@@ -205,6 +205,141 @@ target_pan/tilt -> deadband filter -> step limiter
                 -> PtzClient.set_ptz_position()
 ```
 
+**Visualization** (visualization.py):
+```
+Per Frame (each camera):
+  draw_detections(image, detections, camera_name)
+    ├─> For each Detection:
+    │   ├─> Draw green bounding box (x, y, w, h)
+    │   ├─> Draw confidence label: "Person 0.87"
+    │   └─> Black semi-transparent background for readability
+    ├─> Camera name in top-left corner
+    └─> Detection count in top-right corner
+
+Grid Layout:
+  create_grid_layout(annotated_images, cols=3, target_width=1920)
+    ├─> Resize each image to cell size (640x480)
+    ├─> Arrange in 3-column grid (5 cameras = 2 rows)
+    └─> Fill remaining cells with black
+
+Display:
+  show_detections_grid(frames_dict, detections_dict)
+    ├─> Annotate all frames
+    ├─> Create grid layout
+    ├─> Add stats panel: "Total detections: 2 across 5 cameras | Press 'q' to quit"
+    ├─> cv2.imshow() - non-blocking (1ms wait)
+    └─> Return key code ('q' or ESC = quit)
+```
+
+### Visualization Module Details
+
+The visualization system provides real-time feedback during detection and tracking operations.
+
+#### Layout Structure
+```
+┌─────────────────┬─────────────────┬─────────────────┐
+│   FrontLeft     │   FrontRight    │    Left         │
+│   640x480       │   640x480       │   640x480       │
+│  [Person 0.89]  │  [Person 0.76]  │                 │
+├─────────────────┼─────────────────┼─────────────────┤
+│   Right         │     Back        │   (empty)       │
+│   640x480       │   640x480       │   640x480       │
+│                 │  [Person 0.82]  │                 │
+└─────────────────┴─────────────────┴─────────────────┘
+        Total detections: 3 across 5 cameras
+              Press 'q' to quit
+```
+
+#### Color Coding
+- **Green boxes** (0, 255, 0): Person detections above confidence threshold
+- **White text** (255, 255, 255): Confidence scores and labels
+- **Black backgrounds** (0, 0, 0): Semi-transparent for text readability
+
+#### Usage Modes
+
+**1. Live Tracking with Visualization**
+```powershell
+python -m people_observer.app --hostname <IP> --visualize
+```
+- Updates at 7 Hz (synchronized with detection loop)
+- Non-blocking display (1ms cv2.waitKey)
+- Press 'q' or ESC to gracefully exit
+
+**2. Dry-Run Debug Mode**
+```powershell
+python -m people_observer.app --hostname <IP> --dry-run --visualize
+```
+- See detections without PTZ commands
+- Verify camera alignment and detection quality
+- Check confidence thresholds visually
+
+**3. Single Frame Capture**
+```powershell
+python -m people_observer.app --hostname <IP> --once --visualize
+```
+- Process one detection cycle
+- View results, then exit
+- Useful for testing camera positioning
+
+#### Performance Characteristics
+- **Overhead**: ~10-20ms per frame for annotation + display
+- **Resolution**: 1920x1040 total (3x640 + stats panel)
+- **Memory**: ~12MB for grid (5 cameras × 640×480×3 bytes)
+- **CPU Usage**: Minimal (OpenCV hardware-accelerated when available)
+
+#### Integration with Tracker
+```python
+# In tracker.py main loop
+if cfg.visualize:
+    key = visualization.show_detections_grid(frames, detections_by_camera)
+    if key == ord('q') or key == 27:  # 'q' or ESC
+        logger.info("User requested quit via visualization")
+        break
+```
+
+#### Debugging Features
+
+**Camera Label Annotations:**
+- Camera names cleaned: "frontleft_fisheye_image" → "FRONTLEFT"
+- Detection counts per camera
+- Overall statistics across all cameras
+
+**Bounding Box Information:**
+- Position: Label placed above box (or below if top clipped)
+- Format: "Person 0.87" (confidence to 2 decimal places)
+- Clamping: Boxes constrained to image boundaries
+
+**Save Frames (Optional):**
+```python
+visualization.save_annotated_frames(
+    frames_dict,
+    detections_dict,
+    output_dir="./debug_frames",
+    iteration=42
+)
+# Saves: debug_frames/iter0042_frontleft_fisheye_image.jpg (×5)
+```
+
+#### Window Management
+- **Window Name**: "People Observer - Detections"
+- **Resize**: Auto-scaled to fit 1920px width
+- **Position**: OS default (can be moved by user)
+- **Focus**: Requires focus for keyboard input
+- **Close**: Window closed automatically on exit
+
+#### Constants (All Configurable in visualization.py)
+```python
+GRID_COLS = 3                    # Columns in grid
+DEFAULT_TARGET_WIDTH = 1920      # Total grid width
+GRID_ASPECT_RATIO = 3.0 / 4.0   # 4:3 for fisheye
+THICKNESS = 2                    # Box line thickness
+FONT_SCALE = 0.5                 # Label text size
+CAMERA_LABEL_PADDING = 10        # Corner label spacing
+CONFIDENCE_LABEL_PADDING = 4     # Box label spacing
+STATS_PANEL_HEIGHT = 40          # Bottom panel height
+WAIT_KEY_MS = 1                  # Non-blocking key check
+```
+
 ## What's here
 - `app.py` - Main entry point: orchestrates camera capture, detection, tracking, and PTZ aiming loop.
 - `cameras.py` - Camera source management via `ImageClient`; handles multiple surround fisheye sources.
@@ -212,10 +347,15 @@ target_pan/tilt -> deadband filter -> step limiter
 - `tracker.py` - Main detection loop; selects best person target and computes PTZ angles.
 - `ptz_control.py` - PTZ aiming logic; converts robot-frame bearings to pan/tilt commands via `PtzClient`.
 - `geometry.py` - Coordinate transforms: pixel coordinates -> robot-frame bearing using per-camera yaw and FOV assumptions.
-- `io_robot.py` - Robot interface wrapper; handles connection, time sync, lease management with `LeaseKeepAlive`.
-- `config.py` - Configuration management with nested dataclasses for different subsystems.
-- `visualization.py` - OpenCV-based live detection visualization with bounding boxes.
+- `io_robot.py` - Robot interface wrapper; handles connection, time sync, and client initialization.
+- `config.py` - Configuration management with nested dataclasses; all constants in one place (GPU device, model, thresholds, PTZ params).
+- `visualization.py` - OpenCV-based live detection visualization:
+  - `draw_detections()`: Annotate single camera frame with bounding boxes and confidence labels
+  - `create_grid_layout()`: Arrange 5 cameras in 3x2 grid (640x480 cells, 1920px total width)
+  - `show_detections_grid()`: Display interactive window with stats panel and keyboard controls
+  - `save_annotated_frames()`: Save debug snapshots to disk
 - `test_yolo_model.py` - Verify YOLO model loads and show available models/classes.
+- `test_yolo_webcam.py` - Benchmark YOLO models on laptop webcam with GPU/CPU performance metrics.
 
 ## Requirements
 Install the Boston Dynamics Spot SDK wheels first from the sibling `spot-sdk/prebuilt` directory in this workspace (v5.0.1.2), then the Python dependencies in `requirements.txt`.
@@ -250,10 +390,10 @@ Shows available YOLOv8 models and verifies the model loads correctly.
 ### 2. Test Detection (Dry-Run with Visualization)
 ```powershell
 # Single cycle test
-python -m friendly_spot.people_observer.app --hostname <ROBOT_IP> --once --dry-run --visualize
+python -m friendly_spot.people_observer.app --hostname $env:ROBOT_IP --once --dry-run --visualize
 
 # Continuous test with live visualization
-python -m friendly_spot.people_observer.app --hostname <ROBOT_IP> --dry-run --visualize
+python -m friendly_spot.people_observer.app --hostname $env:ROBOT_IP --dry-run --visualize
 ```
 - `--dry-run`: Skips PTZ commands, only logs what would be sent
 - `--visualize`: Shows OpenCV window with all 5 camera views and bounding boxes

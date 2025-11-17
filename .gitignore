@@ -1,4 +1,6 @@
 /.github
-
+/detection
+/images
+/people_observer/__pycache__
 #yolo models
 *.pt

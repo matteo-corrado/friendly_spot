@@ -1,0 +1,51 @@
+============================================================
+FINAL COMPARISON
+============================================================
+
+Model Performance Ranking (by inference time):
+
+1. yolov8n.pt
+   Avg inference: 10.3ms
+   Avg FPS: 45.2
+   Detections/frame: 2.31
+   Avg confidence: 0.644
+
+2. yolov8s.pt
+   Avg inference: 14.6ms
+   Avg FPS: 40.4
+   Detections/frame: 2.57
+   Avg confidence: 0.713
+
+3. yolov8m.pt
+   Avg inference: 22.6ms
+   Avg FPS: 32.8
+   Detections/frame: 2.81
+   Avg confidence: 0.682
+
+4. yolov8l.pt
+   Avg inference: 35.5ms
+   Avg FPS: 22.9
+   Detections/frame: 2.90
+   Avg confidence: 0.652
+
+5. yolov8x.pt
+   Avg inference: 61.7ms
+   Avg FPS: 14.3
+   Detections/frame: 3.10
+   Avg confidence: 0.675
+
+Recommendations:
+  - Fastest: yolov8n.pt (10.3ms)
+  - Slowest: yolov8x.pt (61.7ms)
+  - Speed difference: 6.0x
+
+  For real-time tracking at 7 Hz:
+    Suitable models: yolov8n.pt, yolov8s.pt, yolov8m.pt, yolov8l.pt, yolov8x.pt
+
+  Confidence Threshold Recommendations:
+  (to reduce false positives, use threshold = avg - 1.0*std_dev)
+    yolov8n.pt: >= 0.38 (avg=0.644, std=0.259)
+    yolov8s.pt: >= 0.46 (avg=0.713, std=0.257)
+    yolov8m.pt: >= 0.41 (avg=0.682, std=0.276)
+    yolov8l.pt: >= 0.35 (avg=0.652, std=0.298)
+    yolov8x.pt: >= 0.41 (avg=0.675, std=0.264)

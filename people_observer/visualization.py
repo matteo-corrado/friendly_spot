@@ -214,12 +214,46 @@ def save_annotated_frames(frames_dict: Dict[str, np.ndarray],
         iteration: Iteration number for filename
     """
     import os
-    os.makedirs(output_dir, exist_ok=True)
     
-    for name, img in frames_dict.items():
-        dets = detections_dict.get(name, [])
-        annotated = draw_detections(img, dets, name)
-        filename = f"{output_dir}/iter{iteration:04d}_{name}.jpg"
-        cv2.imwrite(filename, annotated)
-    
-    logger.info(f"Saved {len(frames_dict)} annotated frames to {output_dir}")
+    try:
+        abs_output_dir = os.path.abspath(output_dir)
+        logger.info(f"save_annotated_frames called: output_dir={abs_output_dir}, iteration={iteration}")
+        logger.info(f"Frames to save: {list(frames_dict.keys())}")
+        
+        # Create directory if doesn't exist
+        os.makedirs(abs_output_dir, exist_ok=True)
+        
+        # Add timestamp to make filenames unique (never overwrite)
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]  # milliseconds
+        
+        saved_count = 0
+        failed_files = []
+        
+        for name, img in frames_dict.items():
+            if img is None or img.size == 0:
+                logger.warning(f"Skipping {name}: empty or None image")
+                continue
+            
+            dets = detections_dict.get(name, [])
+            annotated = draw_detections(img, dets, name)
+            
+            # Filename format: timestamp_iter####_cameraname.jpg (always unique)
+            filename = f"{timestamp}_iter{iteration:04d}_{name}.jpg"
+            filepath = os.path.join(abs_output_dir, filename)
+            
+            success = cv2.imwrite(filepath, annotated)
+            if success and os.path.exists(filepath):
+                saved_count += 1
+                file_size = os.path.getsize(filepath)
+                logger.debug(f"  ✓ {filename} ({file_size:,} bytes)")
+            else:
+                failed_files.append(filename)
+                logger.error(f"  ✗ Failed to write {filename}")
+        
+        if saved_count == len(frames_dict):
+            logger.info(f"✓ Saved all {saved_count} frames to {abs_output_dir}")
+        else:
+            logger.warning(f"Saved {saved_count}/{len(frames_dict)} frames (failed: {failed_files})")
+    except Exception as e:
+        logger.error(f"Error saving annotated frames: {e}", exc_info=True)

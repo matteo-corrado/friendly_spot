@@ -63,7 +63,7 @@ COLOR_TEXT_BG = (0, 0, 0)  # Black
 COLOR_TEXT = (255, 255, 255)  # White
 COLOR_STATS_BG = (0, 0, 0)  # Black with transparency
 FONT = cv2.FONT_HERSHEY_SIMPLEX
-
+DEVICE = "cuda" if YOLO_DEVICE == "cuda" else "cpu"
 
 def draw_detection_box(frame: np.ndarray, x1: int, y1: int, x2: int, y2: int,
                        class_name: str, confidence: float, inference_time_ms: float):
@@ -154,7 +154,7 @@ def test_model_on_webcam(model_name: str, description: str,
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, WEBCAM_WIDTH)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, WEBCAM_HEIGHT)
         
-        print(f"Webcam opened ({WEBCAM_WIDTH}x{WEBCAM_HEIGHT})"))
+        print(f"Webcam opened ({WEBCAM_WIDTH}x{WEBCAM_HEIGHT})")
         
         # Performance tracking
         inference_times: List[float] = []

@@ -2,12 +2,14 @@
 # Last Update: 11/07/2025
 # Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li
 # Purpose: Facial recognition that is able to identify people that the system has seen before, based upon re-training of a recognition model
+# and emotional detection, using the same binding box
 # Acknowledgements: Claude was used for understanding the functionality of OpenCV, and some of the base code for facial recognition
 
 import cv2
 import os
 import numpy as np
 import time
+from deepface import Deepface
 
 # System constants and parameters
 IMAGE_DIRECTORY = "dataset"
@@ -148,7 +150,8 @@ class FaceRecognizer:
             
         return imageCounts
     
-    def recognize_from_webcam(self, confidence_threshold=70):
+    # Will need to update to be from Spot
+    def recognize_from_webcam(self, confidence_threshold=CONFIDENCE_THRESHOLD):
         """
         Real-time face recognition from webcam
         """
@@ -158,7 +161,7 @@ class FaceRecognizer:
             print("Error: Cannot access webcam")
             return
         
-        print("Starting face recognition. Press 'q' to quit...")
+        print("Starting face recognition")
         
         # Initalization process include capturing the existing number of people and images in the dataset, and training based upond existing data
         retrainCount = 1
@@ -168,9 +171,6 @@ class FaceRecognizer:
                 
         while True:                
             
-            # Store time so able to update at roughly 30 FPS
-            start_time = time.perf_counter()
-            
             # Stores the current frame from the webcam
             ret, frame = cap.read()
             
@@ -179,15 +179,16 @@ class FaceRecognizer:
             
             # Converting to gray scale and detecting faces
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            faces = self.face_cascade.detectMultiScale(
-                gray,
-                scaleFactor=IMAGE_SCALE_FACTOR,
-                minNeighbors=MIN_NEIGHBORS,
-                minSize=(MIN_FACE_DIMENSION, MIN_FACE_DIMENSION)
-            )
+            rgb = cv2.cvtColot(gray, cv2.COLOR_GRAY2RGB)
+            faces = self.face_cascade.detectMultiScale(gray, scaleFactor=IMAGE_SCALE_FACTOR, minNeighbors=MIN_NEIGHBORS, minSize=(MIN_FACE_DIMENSION, MIN_FACE_DIMENSION))
             
             # Loops over all faces
             for (x, y, w, h) in faces:
+                
+                # Emotion detection part
+                face_roi_rgb = rgb[y:y + h, x:x + w]
+                emotionDetection = DeepFace.analyze(face_roi_rgb, actions=['emotion'], enforce_detection=False)
+                emotionLabel = emotionDetection[0]['dominant_emotion']
                 
                 # If there are faces to recognize in the training data,
                 if hasFaceData:
@@ -204,12 +205,10 @@ class FaceRecognizer:
                     else:
                         name = "Unknown"
                         confidence_text = f"{confidence:.2f}"
-                        color = (0, 0, 255)  # Red
                 # Otherwise, simply mark as unknown
                 else:
                     name = "Unknown"
                     confidence_text = "No confidence to report"
-                    color = (0, 0, 255) # Red
                     confidence = 100 # Only assigned to simplify tracking procedure below
                 
                 # For names that are recognized, store position, confidence, and image in array assigned to name as key in dictionary
@@ -218,32 +217,8 @@ class FaceRecognizer:
                     trackFacesAppearances[name] = []
                 trackFacesAppearances[name].append(((x, y, w, h), confidence, frame[y:y+h, x:x+w]))
                 
-                # Draw rectangle and label
-                cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-                cv2.putText(
-                    frame,
-                    f"{name} ({confidence_text})",
-                    (x, y - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.8,
-                    color,
-                    2
-                ) 
-            
-            # Show the image, and the bounding boxes on faces with labels on the computer screen
-            cv2.imshow('Face Recognition', frame)
-            
-            end_time = time.perf_counter()
-            
-            # Using the time to process the frame, create a delay that will allow feed to be processed at roughly 30 FPS
-            wait_time = 1.0/RETRAIN_TERMINAL_COUNT
-            if (end_time - start_time) < wait_time:
-                wait_time = int(1000 * (wait_time - (end_time - start_time)))
-            else:
-                wait_time = 1
-            
-            if (cv2.waitKey(wait_time) & 0xFF) == ord('q'): # creates a wait that will roughly update the image at 30 Hz
-                break
+                # Output recognized person, confidence of that person, and an emotional label 
+                print(f"{name} ({confidence_text}) {emotionLabel}")
             
             # At the 30th frame, time to retrain
             if retrainCount == RETRAIN_TERMINAL_COUNT:
@@ -334,7 +309,6 @@ class FaceRecognizer:
             retrainCount += 1
         
         cap.release()
-        cv2.destroyAllWindows()
 
 def main():
     recognizer = FaceRecognizer()

@@ -2,12 +2,14 @@
 # Last Update: 11/07/2025
 # Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li
 # Purpose: Facial recognition that is able to identify people that the system has seen before, based upon re-training of a recognition model
+# and emotional detection, using the same binding box
 # Acknowledgements: Claude was used for understanding the functionality of OpenCV, and some of the base code for facial recognition
 
 import cv2
 import os
 import numpy as np
 import time
+from deepface import Deepface
 
 # System constants and parameters
 IMAGE_DIRECTORY = "dataset"
@@ -148,7 +150,7 @@ class FaceRecognizer:
             
         return imageCounts
     
-    def recognize_from_webcam(self, confidence_threshold=70):
+    def recognize_from_webcam(self, confidence_threshold=CONFIDENCE_THRESHOLD):
         """
         Real-time face recognition from webcam
         """
@@ -179,15 +181,16 @@ class FaceRecognizer:
             
             # Converting to gray scale and detecting faces
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            faces = self.face_cascade.detectMultiScale(
-                gray,
-                scaleFactor=IMAGE_SCALE_FACTOR,
-                minNeighbors=MIN_NEIGHBORS,
-                minSize=(MIN_FACE_DIMENSION, MIN_FACE_DIMENSION)
-            )
+            rgb = cv2.cvtColot(gray, cv2.COLOR_GRAY2RGB)
+            faces = self.face_cascade.detectMultiScale(gray, scaleFactor=IMAGE_SCALE_FACTOR, minNeighbors=MIN_NEIGHBORS, minSize=(MIN_FACE_DIMENSION, MIN_FACE_DIMENSION))
             
             # Loops over all faces
             for (x, y, w, h) in faces:
+                
+                # Emotion detection part
+                face_roi_rgb = rgb[y:y + h, x:x + w]
+                emotionDetection = DeepFace.analyze(face_roi_rgb, actions=['emotion'], enforce_detection=False)
+                emotionLabel = emotionDetection[0]['dominant_emotion']
                 
                 # If there are faces to recognize in the training data,
                 if hasFaceData:
@@ -220,15 +223,7 @@ class FaceRecognizer:
                 
                 # Draw rectangle and label
                 cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-                cv2.putText(
-                    frame,
-                    f"{name} ({confidence_text})",
-                    (x, y - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.8,
-                    color,
-                    2
-                ) 
+                cv2.putText(frame, f"{name} ({confidence_text}) {emotionLabel}", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2) 
             
             # Show the image, and the bounding boxes on faces with labels on the computer screen
             cv2.imshow('Face Recognition', frame)

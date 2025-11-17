@@ -366,35 +366,16 @@ class PoseAnalyzer:
 
 
 class PoseVisualizerApp:
-    """Main application for visualizing pose and detecting actions"""
+    # Main driver for pose estimation and detecting actions
     
     def __init__(self):
         self.analyzer = PoseAnalyzer()
         self.current_action = "initializing"
         self.frame_width = WIDTH
         self.frame_height = HEIGHT
-        
-    def draw_info(self, frame, action):
-        """Draw action information on frame"""
-        # Draw background for text
-        cv2.rectangle(frame, (10, 10), (400, 80), (0, 0, 0), -1)
-        
-        # Draw action text
-        action_text = f"Action: {action.upper()}"
-        timestamp_text = f"Time: {datetime.now().strftime('%H:%M:%S')}"
-        
-        cv2.putText(frame, action_text, (20, 40),
-                   cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 2)
-        cv2.putText(frame, timestamp_text, (20, 70),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
-        
-        # Add frame counter
-        cv2.putText(frame, f"Frame: {self.analyzer.frame_count}",
-                   (10, frame.shape[0] - 10),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
     
     def run(self, video_source=0):
-        """Run the pose action detection on video stream"""
+        # Runs the pose action detection on video stream
         cap = cv2.VideoCapture(video_source)
         
         # Set camera properties for better performance
@@ -403,8 +384,6 @@ class PoseVisualizerApp:
         cap.set(cv2.CAP_PROP_FPS, FPS)
         
         print("Starting Pose Action Detection...")
-        print("Press 'q' to quit")
-        print("Press 's' to save frame")
         print()
         
         while cap.isOpened():
@@ -422,50 +401,23 @@ class PoseVisualizerApp:
             if landmarks is not None:
                 # Detect action
                 action = self.analyzer.detect_action(landmarks)
-                
                 self.current_action = action
-                
-                # Draw landmarks
-                mp_drawing.draw_landmarks(
-                    frame,
-                    results.pose_landmarks,
-                    mp_pose.POSE_CONNECTIONS,
-                    mp.solutions.drawing_styles.get_default_pose_landmarks_style()
-                )
             
-            # Draw info
-            self.draw_info(frame, self.current_action)
-            
-            # Display frame
-            cv2.imshow('Pose Action Detection', frame)
-            
-            # Handle key presses
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord('q'):
-                print("Quitting...")
-                break
-            elif key == ord('s'):
-                filename = f"pose_frame_{self.analyzer.frame_count}.png"
-                cv2.imwrite(filename, frame)
-                print(f"Saved frame to {filename}")
-            
-            # Print periodic updates
-            if self.analyzer.frame_count % FPS == 0:
-                if landmarks is not None:
-                    print(f"Frame {self.analyzer.frame_count}: {action}")
-                else:
-                    print(f"Frame {self.analyzer.frame_count}")
+            # Output the estimated action
+            if landmarks is not None:
+                print(f"Frame {self.analyzer.frame_count}: {action}")
+            else:
+                print(f"Frame {self.analyzer.frame_count}")
                     
         cap.release()
-        cv2.destroyAllWindows()
-        print("Application closed")
+        print("Estimation Complete")
 
 
 def main():
     """Main entry point"""
     app = PoseVisualizerApp()
     
-    # Use 0 for webcam, or provide a video file path
+    # Source changes necessary for Spot
     app.run(video_source="test.MOV")
 
 

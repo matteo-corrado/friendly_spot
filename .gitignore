@@ -1,0 +1,19 @@
+/.github
+/detection
+/images
+/output_withdepth
+
+#yolo models
+*.pt
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Test outputs
+*.txt
+test_*.py
+people_observer/test_*.py
+
+TRANSFORM_IMPROVEMENTS.md

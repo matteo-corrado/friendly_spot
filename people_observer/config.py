@@ -44,6 +44,18 @@ CAM_YAW_DEG: Dict[str, float] = {
     "back_fisheye_image": 180.0,
 }
 
+# Physical camera rotation angles (degrees, counterclockwise)
+# Spot's fisheye cameras are physically rotated relative to their mounting frames.
+# These rotation angles from the SDK are critical for accurate pixel→ray transforms.
+# Source: boston-dynamics/spot-sdk examples (get_image.py, stitch_front_images.py)
+ROTATION_ANGLE: Dict[str, float] = {
+    "frontleft_fisheye_image": -78.0,
+    "frontright_fisheye_image": -102.0,
+    "left_fisheye_image": 0.0,
+    "right_fisheye_image": 180.0,
+    "back_fisheye_image": 0.0,
+}
+
 # PTZ/compositor/stream settings
 # Valid PTZ names: 'mech' (mechanical), 'digi' (digital), 'full_digi', 'overlay_digi', 'full_pano', 'overlay_pano', 'sv600'
 # Valid compositor screens: 'mech_full', 'digi_full', 'mech', 'digi', 'mech_overlay', etc.
@@ -51,9 +63,15 @@ PTZ_NAME = "mech"  # Mechanical PTZ control
 COMPOSITOR_SCREEN = "mech_full"  # Full mechanical PTZ view
 TARGET_BITRATE = 2_000_000
 
+# PTZ hardware mounting offset (degrees)
+# The mechanical PTZ is physically mounted with a 35° offset to the right of the body frame.
+# When we command pan=0°, the PTZ actually points 35° to the right of forward.
+# To point forward, we must command pan=325° (360° - 35°).
+PTZ_OFFSET_DEG = 35.0
+
 # Detection thresholds
 PERSON_CLASS_ID = 0
-MIN_CONFIDENCE = 0.30
+MIN_CONFIDENCE = 0.40
 MIN_AREA_PX = 600
 YOLO_IOU_THRESHOLD = 0.5  # IOU threshold for YOLO NMS
 

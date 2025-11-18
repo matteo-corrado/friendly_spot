@@ -1,11 +1,10 @@
-"""Camera utilities for surround capture.
+"""Camera utilities for surround capture with depth support.
 
-Prefer batch calls to ImageClient.get_image_from_sources so responses in a cycle
-share a similar transforms_snapshot. Functions here do minimal decode and return
-both images and the raw ImageResponses so downstream code can access intrinsics
-and frame transforms.
+Prefer batch calls to ImageClient.get_image so responses in a cycle share a
+similar transforms_snapshot. Functions return both decoded images and raw
+ImageResponses so downstream code can access intrinsics and frame transforms.
 
-Functions
+Functions:
 - fetch_image_sources(image_client) -> dict
     Query ImageSource metadata including intrinsics and camera models (once at startup).
 - get_camera_intrinsics(source_name, image_sources) -> dict | None
@@ -17,11 +16,10 @@ Functions
 - ensure_available_sources(image_client, desired) -> list[str]
     Validate desired source names against the robot's advertised image sources.
 - decode_image(resp) -> np.ndarray | None
-    JPEG/RAW to BGR image decode for visualization/inference. Returns None if
-    format is unsupported.
-- get_frames(image_client, sources) -> (OrderedDict[name->image], list[resp])
-    Batch-fetch frames. Returns decoded images and their corresponding
-    ImageResponses in the same order for metadata access.
+    JPEG/RAW to BGR image decode for visualization/inference.
+- get_frames(image_client, sources, include_depth=False) -> (frames, responses, depth_frames)
+    Batch-fetch visual and optionally depth images using SDK build_image_request pattern.
+    Returns decoded images, all responses, and depth images (in meters with NaN for invalid).
 """
 from collections import OrderedDict
 from typing import Dict, List, Optional, Tuple
@@ -31,7 +29,7 @@ import math
 import numpy as np
 import cv2
 from bosdyn.api import image_pb2
-from bosdyn.client.image import ImageClient
+from bosdyn.client.image import ImageClient, build_image_request
 
 from .config import FALLBACK_HFOV_DEG
 
@@ -61,7 +59,7 @@ def fetch_image_sources(image_client: ImageClient) -> Dict[str, image_pb2.ImageS
             if src.HasField('pinhole'):
                 fx = src.pinhole.intrinsics.focal_length.x
                 fy = src.pinhole.intrinsics.focal_length.y
-                logger.info(f"  ✓ {name}: PINHOLE model (fx={fx:.1f}, fy={fy:.1f})")
+                logger.info(f"{name}: PINHOLE model (fx={fx:.1f}, fy={fy:.1f})")
             elif src.HasField('kannala_brandt'):
                 fx = src.kannala_brandt.intrinsics.focal_length.x
                 fy = src.kannala_brandt.intrinsics.focal_length.y
@@ -69,9 +67,9 @@ def fetch_image_sources(image_client: ImageClient) -> Dict[str, image_pb2.ImageS
                 k2 = src.kannala_brandt.k2
                 k3 = src.kannala_brandt.k3
                 k4 = src.kannala_brandt.k4
-                logger.info(f"  ✓ {name}: KANNALA-BRANDT fisheye (fx={fx:.1f}, fy={fy:.1f}, k1={k1:.4f}, k2={k2:.4f}, k3={k3:.4f}, k4={k4:.4f})")
+                logger.info(f"{name}: KANNALA-BRANDT fisheye (fx={fx:.1f}, fy={fy:.1f}, k1={k1:.4f}, k2={k2:.4f}, k3={k3:.4f}, k4={k4:.4f})")
             else:
-                logger.warning(f"  ✗ {name}: NO CAMERA MODEL FOUND - will use fallback projection")
+                logger.warning(f"{name}: NO CAMERA MODEL FOUND - will use fallback projection")
     
     return _image_sources_cache
 
@@ -245,21 +243,126 @@ def decode_image(resp) -> np.ndarray:
     return img
 
 
-def get_frames(image_client: ImageClient, sources: List[str]):
-    """Fetch a batch of images for the given sources.
+def _decode_depth_image(resp) -> Optional[np.ndarray]:
+    """Decode depth ImageResponse to float32 ndarray in meters.
+    
+    Uses SDK pattern: depth_scale from ImageSource converts uint16 pixels to meters.
+    Invalid pixels (0 and 65535) are marked as NaN.
+    
+    Args:
+        resp: ImageResponse with depth data
+        
+    Returns:
+        np.ndarray of shape (rows, cols) with depth in meters, or None if not a depth image
+    """
+    # Check pixel format
+    if resp.shot.image.pixel_format != image_pb2.Image.PIXEL_FORMAT_DEPTH_U16:
+        return None
+    
+    rows = resp.shot.image.rows
+    cols = resp.shot.image.cols
+    data = resp.shot.image.data
+    
+    # Decode uint16 depth data (SDK pattern)
+    depth_u16 = np.frombuffer(data, dtype=np.uint16).reshape(rows, cols)
+    
+    # Get scale factor from ImageSource (depth_scale converts pixel value to meters)
+    depth_scale = resp.source.depth_scale if resp.source.depth_scale > 0 else 1.0
+    
+    # Convert to float32 meters: depth_m = pixel_value / depth_scale
+    depth_m = depth_u16.astype(np.float32) / depth_scale
+    
+    # Mask out invalid depth values (0 and 65535 are invalid per SDK)
+    depth_m[(depth_u16 == 0) | (depth_u16 == 65535)] = np.nan
+    
+    return depth_m
+
+
+def get_frames(image_client: ImageClient, sources: List[str], include_depth: bool = False):
+    """Fetch a batch of images for the given sources using SDK build_image_request pattern.
 
     Inputs:
     - image_client: Spot ImageClient
-    - sources: list of image source names
+    - sources: list of visual image source names
+    - include_depth: if True, also fetch corresponding depth_in_visual_frame images
 
     Returns:
     - frames: OrderedDict mapping source name -> BGR image (np.ndarray)
-    - responses: list of ImageResponse objects in the same order as request
+    - responses: list of ALL ImageResponse objects (visual + depth)
+    - depth_frames: OrderedDict mapping visual source name -> depth in meters (np.ndarray)
     """
     frames: "OrderedDict[str, np.ndarray]" = OrderedDict()
-    responses = image_client.get_image_from_sources(sources)
+    depth_frames: "OrderedDict[str, np.ndarray]" = OrderedDict()
+    
+    # Build ImageRequest list using SDK pattern
+    image_requests = []
+    for src in sources:
+        # Visual image request (JPEG format by default)
+        image_requests.append(build_image_request(src))
+        
+        # Add depth request if requested
+        if include_depth:
+            # Construct depth source name: strip _fisheye_image/_image suffix, add _depth_in_visual_frame
+            base_name = src.replace('_fisheye_image', '').replace('_image', '').replace('_depth', '')
+            depth_source = f"{base_name}_depth_in_visual_frame"
+            # Request depth in RAW format with DEPTH_U16 pixel format
+            image_requests.append(build_image_request(
+                depth_source,
+                pixel_format=image_pb2.Image.PIXEL_FORMAT_DEPTH_U16,
+                image_format=image_pb2.Image.FORMAT_RAW
+            ))
+    
+    # Fetch all images in one batch call
+    responses = image_client.get_image(image_requests)
+    
+    # Separate visual and depth responses
     for r in responses:
-        img = decode_image(r)
-        if img is not None:
-            frames[r.source.name] = img
-    return frames, responses
+        source_name = r.source.name
+        
+        # Check if this is a depth source
+        if '_depth_in_visual_frame' in source_name:
+            depth_img = _decode_depth_image(r)
+            if depth_img is not None:
+                # Map depth back to the visual source name for easy lookup
+                visual_name = source_name.replace('_depth_in_visual_frame', '_fisheye_image')
+                # Handle cases where visual source might not have _fisheye_image suffix
+                if visual_name not in sources:
+                    visual_name = source_name.replace('_depth_in_visual_frame', '_image')
+                depth_frames[visual_name] = depth_img
+        else:
+            # Visual image
+            img = decode_image(r)
+            if img is not None:
+                frames[source_name] = img
+    
+    return frames, responses, depth_frames
+
+
+def get_depth_at_pixel(depth_img: np.ndarray, pixel_x: int, pixel_y: int) -> Optional[float]:
+    """Extract depth value at a specific pixel from decoded depth image.
+    
+    Utility function for single-pixel depth queries. Useful for computing 3D points
+    with SDK's pixel_to_camera_space() function.
+    
+    Args:
+        depth_img: Decoded depth image in meters (with NaN for invalid pixels)
+        pixel_x: X pixel coordinate
+        pixel_y: Y pixel coordinate
+        
+    Returns:
+        Depth in meters at the pixel, or None if invalid or out of bounds
+    """
+    if depth_img is None:
+        return None
+    
+    img_h, img_w = depth_img.shape
+    if not (0 <= pixel_x < img_w and 0 <= pixel_y < img_h):
+        return None
+    
+    depth_m = depth_img[pixel_y, pixel_x]
+    
+    # Check for invalid depth (NaN)
+    if np.isnan(depth_m):
+        return None
+    
+    return float(depth_m)

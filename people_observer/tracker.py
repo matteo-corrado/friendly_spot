@@ -16,7 +16,7 @@ Function
 """
 import logging
 import time
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 
 import cv2
 import numpy as np
@@ -36,30 +36,70 @@ def pick_largest(dets: List[Detection]):
     return max(dets, key=lambda d: d.bbox_xywh[2] * d.bbox_xywh[3]) if dets else None
 
 
-def estimate_detection_depth_m(resp, det: Detection) -> float:
-    """Estimate distance to detection in meters from a depth-capable ImageResponse.
+def estimate_detection_depth_m(depth_img: Optional[np.ndarray], det: Detection) -> Optional[float]:
+    """Estimate distance (meters) to the detected person from depth image.
+    
+    Samples a central region of the bounding box (avoiding edges where depth may be less reliable)
+    and returns the median depth value.
 
-    Inputs:
-    - resp: ImageResponse for the same source the detection came from
-    - det: Detection with bbox in pixel coordinates
+    Args: 
+        depth_img: Depth image in meters (np.ndarray with NaN for invalid pixels), or None
+        det: Detection with bounding box in (x1, y1, width, height) format
 
-    Output: float distance in meters (smaller is closer). Returns None if depth
-    is unavailable for this response or cannot be decoded.
-
-    Note: Surround fisheye cameras often do not provide depth. This function is a
-    placeholder for future integration with depth-capable sources (e.g., hand depth)
-    or NCB outputs. When unavailable, caller must fall back to largest-area policy.
+    Returns: 
+        Median depth in meters, or None if depth unavailable or no valid pixels in ROI
     """
-    # TODO: Implement per-source depth extraction when depth ImageResponses are available.
-    # Options:
-    # - Use bosdyn.client.image.depth_image_to_pointcloud to compute 3D points, then
-    #   sample the ROI around bbox center and take median range.
-    # - Use pixel-format specific decoding if depths are encoded as U16 (meters or mm).
-    _ = (resp, det)  # keep signature used
-    return None
+    if depth_img is None:
+        return None
+    
+    # Extract bounding box (x1, y1, width, height)
+    x1, y1, w, h = det.bbox_xywh
+    
+    # Calculate center and sample from inner 60% of bbox to avoid edge artifacts
+    # This focuses on the torso/center of person rather than arms/edges
+    x_center = x1 + w / 2
+    y_center = y1 + h / 2
+    sample_w = w * 0.6
+    sample_h = h * 0.6
+    
+    # Convert to sample ROI pixel coordinates
+    sample_x1 = int(x_center - sample_w / 2)
+    sample_y1 = int(y_center - sample_h / 2)
+    sample_x2 = int(x_center + sample_w / 2)
+    sample_y2 = int(y_center + sample_h / 2)
+    
+    # Clamp to image bounds
+    img_h, img_w = depth_img.shape
+    sample_x1 = max(0, min(sample_x1, img_w - 1))
+    sample_x2 = max(0, min(sample_x2, img_w - 1))
+    sample_y1 = max(0, min(sample_y1, img_h - 1))
+    sample_y2 = max(0, min(sample_y2, img_h - 1))
+    
+    # Ensure we have a valid ROI
+    if sample_x2 <= sample_x1 or sample_y2 <= sample_y1:
+        return None
+    
+    # Extract ROI and get valid depth values (excluding NaN)
+    roi = depth_img[sample_y1:sample_y2, sample_x1:sample_x2]
+    valid_depths = roi[~np.isnan(roi)]
+    
+    if len(valid_depths) == 0:
+        return None
+    
+    # Return median depth to be robust against outliers
+    return float(np.median(valid_depths))
 
 
-def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig):
+def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig, shutdown_requested=None):
+    """Main tracking loop with graceful shutdown support.
+    
+    Args:
+        robot: Robot client instance
+        image_client: Image service client
+        ptz_client: PTZ control client
+        cfg: Runtime configuration
+        shutdown_requested: Callable or global flag to check for shutdown request
+    """
     # Fetch camera intrinsics from robot (once at startup)
     logger.info("Fetching camera intrinsics from robot...")
     image_sources = cameras.fetch_image_sources(image_client)
@@ -84,9 +124,14 @@ def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig):
     iteration = 0
 
     while True:
+        # Check for shutdown request
+        if shutdown_requested is not None and shutdown_requested():
+            logger.info("Shutdown requested, exiting tracking loop gracefully")
+            break
+        
         iteration += 1
         start = time.time()
-        frames, responses = cameras.get_frames(image_client, cfg.sources)
+        frames, responses, depth_frames = cameras.get_frames(image_client, cfg.sources, include_depth=True)
         if not frames:
             time.sleep(period)
             continue
@@ -110,7 +155,9 @@ def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig):
             # Prefer smallest depth when available
             depth_rank: List[Tuple[Detection, float]] = []
             for d in dets:
-                dist_m = estimate_detection_depth_m(resp, d)
+                # Get depth image for this camera source
+                depth_img = depth_frames.get(name)
+                dist_m = estimate_detection_depth_m(depth_img, d)
                 if dist_m is not None:
                     depth_rank.append((d, dist_m))
 
@@ -157,7 +204,11 @@ def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig):
             time.sleep(max(0, period - (time.time() - start)))
             continue
 
-        name, det, img_w, resp, _ = best
+        name, det, img_w, resp, rank_value = best
+        
+        # Log closest person distance if depth was available
+        if rank_value > 0:  # rank_value is distance when depth is available
+            logger.info(f"CLOSEST PERSON: {rank_value:.2f}m away in {name}")
         
         # Get camera intrinsics for this source
         intrinsics = cameras.get_camera_intrinsics(name, image_sources)
@@ -173,9 +224,15 @@ def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig):
             x, y, w, h = det.bbox_xywh
             logger.info(f"Detection: camera={name}, confidence={det.conf:.2f}, bbox=({x:.0f},{y:.0f},{w:.0f},{h:.0f})")
 
-        # Compute PTZ angles from pixel detection
-        cx = det.bbox_xywh[0] + det.bbox_xywh[2] / 2.0
-        cy = det.bbox_xywh[1] + det.bbox_xywh[3] / 2.0
+        # Compute PTZ target point from bbox
+        # Use upper third of bbox (head/torso) instead of geometric center for better tracking
+        x, y, w, h = det.bbox_xywh
+        cx = x + w / 2.0
+        cy = y + h * 0.3  # Target person's head/torso, not feet
+        logger.debug(f"Target point: bbox center=({x+w/2:.0f}, {y+h/2:.0f}) → head/torso=({cx:.0f}, {cy:.0f})")
+        
+        # Get image dimensions for rotation correction
+        img_height, img_width = frames[name].shape[:2]
         
         # Try transform mode first (accurate), fall back to simple projection if unavailable
         try:
@@ -185,7 +242,9 @@ def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig):
                     cx, cy,
                     intrinsics,
                     resp,
-                    robot
+                    robot,
+                    img_width,
+                    img_height
                 )
             else:
                 # Use simple geometric projection (fallback)
@@ -234,11 +293,17 @@ def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig):
         # - Cycle attention with time decay or user policy.
         # - Blend cues (e.g., center of mass of group) when no single dominant target exists.
 
-        # pacing
+        # Pacing with interruptible sleep
         sleep_left = period - (time.time() - start)
         if sleep_left > 0:
-            time.sleep(sleep_left)
+            # Sleep in small increments to allow faster response to shutdown signals
+            sleep_increment = 0.1  # Check every 100ms
+            elapsed = 0
+            while elapsed < sleep_left:
+                if shutdown_requested is not None and shutdown_requested():
+                    logger.info("Shutdown requested during sleep, exiting immediately")
+                    return
+                time.sleep(min(sleep_increment, sleep_left - elapsed))
+                elapsed += sleep_increment
     
-    # Cleanup OpenCV windows
-    if cfg.visualize:
-        cv2.destroyAllWindows()
+    logger.info(f"Tracking loop finished after {iteration} iterations")

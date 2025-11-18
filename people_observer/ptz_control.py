@@ -1,46 +1,18 @@
-"""PTZ command helpers with smoothing and deadbands.
+"""PTZ command helpers.
 
-Functions
-- apply_deadband(target_deg, current_deg, deadband_deg) -> float
-    Suppress small changes to reduce jitter using SDK angle_diff for proper wraparound handling.
-- clamp_step(target_deg, current_deg, max_step_deg) -> float
-    Limit max degrees per update step with proper angle wraparound.
-- set_ptz(ptz_client, ptz_name, pan_deg, tilt_deg, zoom=0.0, dry_run=False)
+Functions:
+- set_ptz(ptz_client, ptz_name, pan_deg, tilt_deg, zoom, dry_run)
     Send an absolute PTZ position in degrees via Spot CAM API.
 """
 import logging
 
 import numpy as np
-from bosdyn.client import math_helpers
 from bosdyn.client.spot_cam.ptz import PtzClient
 from bosdyn.api.spot_cam import ptz_pb2
 
 from .config import RuntimeConfig
 
 logger = logging.getLogger(__name__)
-
-
-def apply_deadband(target_deg: float, current_deg: float, deadband_deg: float) -> float:
-    """Apply deadband to suppress small angle changes. Uses SDK angle_diff for proper wraparound."""
-    # Use SDK angle_diff_degrees to handle wraparound correctly
-    diff = math_helpers.angle_diff_degrees(target_deg, current_deg)
-    if abs(diff) < deadband_deg:
-        return current_deg
-    return target_deg
-
-
-def clamp_step(target_deg: float, current_deg: float, max_step_deg: float) -> float:
-    """Limit maximum angle change per step. Uses SDK angle_diff for proper wraparound."""
-    # Use SDK angle_diff_degrees to compute signed difference with wraparound
-    delta = math_helpers.angle_diff_degrees(target_deg, current_deg)
-    if abs(delta) > max_step_deg:
-        # Move max_step_deg in the direction of delta
-        step = max_step_deg if delta > 0 else -max_step_deg
-        new_target = current_deg + step
-        # Normalize result to [-180, 180]
-        new_target_rad = math_helpers.recenter_angle_mod(np.deg2rad(new_target), 0.0)
-        return np.rad2deg(new_target_rad)
-    return target_deg
 
 
 def set_ptz(ptz_client: PtzClient, ptz_name: str, pan_deg: float, tilt_deg: float, zoom: float = 1.0, dry_run: bool = False):
@@ -63,7 +35,7 @@ def set_ptz(ptz_client: PtzClient, ptz_name: str, pan_deg: float, tilt_deg: floa
         # Get current PTZ position to log state before commanding
         try:
             current_pos = ptz_client.get_ptz_position(ptz_desc)
-            logger.info(f"Current PTZ state: pan={current_pos.ptz.pan.value:.2f}°, tilt={current_pos.ptz.tilt.value:.2f}°, zoom={current_pos.ptz.zoom.value:.2f}")
+            logger.info(f"Current PTZ state: pan={current_pos.pan.value:.2f}°, tilt={current_pos.tilt.value:.2f}°, zoom={current_pos.zoom.value:.2f}")
         except Exception as e:
             logger.warning(f"Could not query current PTZ position: {e}")
         

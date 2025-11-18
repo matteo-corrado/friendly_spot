@@ -7,6 +7,8 @@ No user/password flags are required; env-based authentication is assumed.
 """
 import argparse
 import logging
+import signal
+import sys
 
 import bosdyn.client.util
 from bosdyn.client.image import ImageClient
@@ -18,6 +20,17 @@ from .cameras import fetch_image_sources
 from .tracker import run_loop
 
 logger = logging.getLogger(__name__)
+
+# Global flag for graceful shutdown
+_shutdown_requested = False
+
+
+def signal_handler(signum, frame):
+    """Handle interrupt signals gracefully."""
+    global _shutdown_requested
+    sig_name = signal.Signals(signum).name
+    logger.info(f"Received {sig_name}, initiating graceful shutdown...")
+    _shutdown_requested = True
 
 
 def main(argv=None):
@@ -78,11 +91,38 @@ def main(argv=None):
 
     ptz_client = robot.ensure_client(PtzClient.default_service_name)
 
+    # Register signal handlers for graceful shutdown
+    signal.signal(signal.SIGINT, signal_handler)   # Ctrl+C
+    signal.signal(signal.SIGTERM, signal_handler)  # Termination signal
+
+    exit_code = 0
     try:
-        run_loop(robot, image_client, ptz_client, cfg)
+        logger.info("Starting person tracking loop (press Ctrl+C to stop)")
+        # Pass lambda to check global flag, not the value itself
+        run_loop(robot, image_client, ptz_client, cfg, lambda: _shutdown_requested)
+        logger.info("Person tracking loop completed successfully")
     except KeyboardInterrupt:
-        logger.info("Interrupted by user")
+        logger.info("Interrupted by user (Ctrl+C)")
+        exit_code = 130  # Standard Unix exit code for SIGINT
+    except Exception as e:
+        logger.error(f"Unexpected error in tracking loop: {type(e).__name__}: {e}", exc_info=True)
+        exit_code = 1
+    finally:
+        # Cleanup
+        logger.info("Cleaning up resources...")
+        
+        # Close OpenCV windows if visualization was enabled
+        if cfg.visualize:
+            import cv2
+            cv2.destroyAllWindows()
+            logger.info("Closed visualization windows")
+        
+        # Log final statistics
+        logger.info("Shutdown complete")
+        logger.info(f"Exiting with code {exit_code}")
+    
+    return exit_code
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

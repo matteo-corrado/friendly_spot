@@ -30,6 +30,13 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Detection:
+    """YOLO detection result.
+    
+    Attributes:
+        source: Camera source name
+        bbox_xywh: Bounding box as (x1, y1, width, height) in pixels
+        conf: Detection confidence [0.0, 1.0]
+    """
     source: str
     bbox_xywh: Tuple[int, int, int, int]
     conf: float

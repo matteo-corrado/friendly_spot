@@ -13,7 +13,7 @@ __pycache__/
 
 # Test outputs
 *.txt
-test_*.py
-people_observer/test_*.py
+#test_*.py
+#people_observer/test_*.py
 
 TRANSFORM_IMPROVEMENTS.md

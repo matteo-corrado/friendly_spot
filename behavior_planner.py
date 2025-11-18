@@ -51,6 +51,7 @@ class PerceptionInput:
 class ComfortHyperParameters:
     """
     Tunable hyperparameters that shape how the comfort score is computed.
+    We set reasonable defaults here, but these can be adjusted via the ComfortTuner.
     """
 
     base_score: float = 0.5

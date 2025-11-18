@@ -26,7 +26,7 @@ from . import cameras
 from . import geometry
 from .detection import YoloDetector, Detection
 from .ptz_control import set_ptz
-from .visualization import show_detections_grid
+from .visualization import show_detections_grid, show_detections_with_depth_grid
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +144,7 @@ def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig, shutdown_reque
         # Rank candidates by (depth if available) else by area
         best = None  # (name, det, width, resp, rank_value)
         detections_by_camera: Dict[str, List[Detection]] = {}
+        distances_by_camera: Dict[str, List[Optional[float]]] = {}  # List of distances, indexed same as detections
         
         for name, dets, img, resp in zip(names, all_dets, imgs, responses):
             detections_by_camera[name] = dets  # Store for visualization
@@ -152,20 +153,37 @@ def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig, shutdown_reque
             # attach source name into Detection
             for d in dets:
                 d.source = name
-            # Prefer smallest depth when available
-            depth_rank: List[Tuple[Detection, float]] = []
+            
+            # Compute depth for all detections (for visualization)
+            distances_by_camera[name] = []  # Initialize distances list for this camera
+            depth_img = depth_frames.get(name)
             for d in dets:
-                # Get depth image for this camera source
-                depth_img = depth_frames.get(name)
                 dist_m = estimate_detection_depth_m(depth_img, d)
-                if dist_m is not None:
-                    depth_rank.append((d, dist_m))
-
-            if depth_rank:
-                # pick the minimum distance
-                cand, dist = min(depth_rank, key=lambda x: x[1])
-                rank_value = dist  # smaller is better
+                distances_by_camera[name].append(dist_m)  # Store for visualization (None if no depth)
+            
+            # Select best candidate based on priority_mode
+            if cfg.priority_mode == "depth":
+                # Depth-based prioritization: prefer nearest person
+                depth_rank: List[Tuple[Detection, float, int]] = []  # (det, distance, index)
+                for idx, (d, dist_m) in enumerate(zip(dets, distances_by_camera[name])):
+                    if dist_m is not None:
+                        depth_rank.append((d, dist_m, idx))
+                
+                if depth_rank:
+                    # Pick the minimum distance
+                    cand, dist, idx = min(depth_rank, key=lambda x: x[1])
+                    rank_value = dist  # smaller is better
+                else:
+                    # No depth available, fall back to largest area
+                    cand = pick_largest(dets)
+                    if cand is None:
+                        continue
+                    area = cand.bbox_xywh[2] * cand.bbox_xywh[3]
+                    if area < cfg.yolo.min_area_px:
+                        continue
+                    rank_value = -area  # more area is better -> use negative for min-compare
             else:
+                # Area-based prioritization: prefer largest bounding box
                 cand = pick_largest(dets)
                 if cand is None:
                     continue
@@ -179,7 +197,9 @@ def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig, shutdown_reque
 
         # Visualize detections if enabled
         if cfg.visualize:
-            key = show_detections_grid(frames, detections_by_camera)
+            # Show RGB and depth side-by-side with distance annotations
+            key = show_detections_with_depth_grid(frames, depth_frames, detections_by_camera, 
+                                                  distances_by_camera)
             if key == ord('q') or key == 27:  # 'q' or ESC to quit
                 logger.info("User requested quit via visualization window")
                 break
@@ -190,7 +210,8 @@ def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig, shutdown_reque
             from .visualization import save_annotated_frames
             abs_path = os.path.abspath(cfg.save_images)
             logger.info(f"Calling save_annotated_frames: dir={abs_path}, iteration={iteration}, frames={len(frames)}")
-            save_annotated_frames(frames, detections_by_camera, cfg.save_images, iteration)
+            save_annotated_frames(frames, detections_by_camera, cfg.save_images, iteration,
+                                depth_frames, distances_by_camera)
 
         # Check once mode before continuing
         if cfg.once:

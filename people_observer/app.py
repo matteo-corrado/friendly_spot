@@ -38,6 +38,8 @@ def main(argv=None):
     bosdyn.client.util.add_base_arguments(ap)  # Adds 'hostname' as positional arg
     ap.add_argument("--mode", choices=["bearing", "transform"], default=TRANSFORM_MODE,
                     help="Geometry mode: 'transform' uses full 3D transforms (default), 'bearing' uses simple projection")
+    ap.add_argument("--priority", choices=["depth", "area"], default="depth",
+                    help="Detection prioritization: 'depth' selects nearest person (default), 'area' selects largest bbox")
     ap.add_argument("--once", action="store_true", 
                     help="Run one cycle and exit (dev)")
     ap.add_argument("--exit-on-detection", action="store_true", 
@@ -54,6 +56,7 @@ def main(argv=None):
 
     cfg = RuntimeConfig()
     cfg.observer_mode = args.mode
+    cfg.priority_mode = args.priority
     cfg.dry_run = args.dry_run
     cfg.once = args.once
     cfg.exit_on_detection = args.exit_on_detection
@@ -79,6 +82,12 @@ def main(argv=None):
         logger.info("EXIT-ON-DETECTION MODE: Will exit after detecting and commanding PTZ to a person")
     if cfg.visualize:
         logger.info("VISUALIZATION MODE: OpenCV windows will display detections")
+    
+    # Log priority mode
+    if cfg.priority_mode == "depth":
+        logger.info("PRIORITY MODE: depth (selecting nearest person with depth data)")
+    else:
+        logger.info("PRIORITY MODE: area (selecting person with largest bounding box)")
 
     logger.info(f"Connecting to robot at {args.hostname}")
     robot = connect(args.hostname)

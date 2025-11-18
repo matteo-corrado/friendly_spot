@@ -71,12 +71,12 @@ PTZ_OFFSET_DEG = 35.0
 
 # Detection thresholds
 PERSON_CLASS_ID = 0
-MIN_CONFIDENCE = 0.40
+MIN_CONFIDENCE = 0.30
 MIN_AREA_PX = 600
 YOLO_IOU_THRESHOLD = 0.5  # IOU threshold for YOLO NMS
 
 # Loop pacing
-LOOP_HZ = 7
+LOOP_HZ = 3
 
 # PTZ control policy
 PAN_DEADBAND_DEG = 1.0
@@ -85,6 +85,9 @@ MAX_DEG_PER_STEP = 8.0
 DEFAULT_TILT_DEG = -5.0
 DEFAULT_ZOOM = 1.0  # Zoom range [1.0, 30.0], 1.0 = no zoom
 TRANSFORM_MODE = "transform"  # or "bearing"
+
+# Detection prioritization mode
+DETECTION_PRIORITY_MODE = "depth"  # "depth" (nearest person) or "area" (largest bbox)
 
 # YOLO model settings
 DEFAULT_YOLO_MODEL = "yolov8x.pt"  # extra large model for accuracy
@@ -165,6 +168,7 @@ class RuntimeConfig:
     yaw_deg: Dict[str, float] = field(default_factory=lambda: CAM_YAW_DEG)
     loop_hz: int = LOOP_HZ
     observer_mode: str = TRANSFORM_MODE  # 'transform' or 'bearing'
+    priority_mode: str = DETECTION_PRIORITY_MODE  # 'depth' or 'area'
     yolo: YOLOConfig = field(default_factory=YOLOConfig)
     connection: ConnectionConfig = field(default_factory=ConnectionConfig)
     ptz: PTZConfig = field(default_factory=PTZConfig)
@@ -181,6 +185,8 @@ class RuntimeConfig:
             raise ValueError(f"loop_hz must be positive, got {self.loop_hz}")
         if self.observer_mode not in ["bearing", "transform"]:
             raise ValueError(f"Invalid observer_mode '{self.observer_mode}'. Must be 'bearing' or 'transform'.")
+        if self.priority_mode not in ["depth", "area"]:
+            raise ValueError(f"Invalid priority_mode '{self.priority_mode}'. Must be 'depth' or 'area'.")
         # Validate that all sources have HFOV and yaw entries
         for src in self.sources:
             if src not in self.hfov_deg:

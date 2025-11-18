@@ -1,3 +1,11 @@
+# Authors: Thor Lemke, Sally Hyun Hahm, Matteo Corrado
+# Last Update: 11/17/2025
+# Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li
+# Purpose: YOLO-based person detection wrapper using Ultralytics with GPU acceleration,
+# batch processing for multiple camera frames, and person class filtering
+# Acknowledgements: Ultralytics YOLOv8 documentation for model API and detection parameters,
+# Claude for batch prediction optimization and dataclass design
+
 """YOLO detector wrapper and detection struct.
 
 Use ultralytics for convenience. Keep person-only class filtering.

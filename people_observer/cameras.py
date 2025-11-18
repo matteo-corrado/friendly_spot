@@ -1,3 +1,11 @@
+# Authors: Thor Lemke, Sally Hyun Hahm, Matteo Corrado
+# Last Update: 11/18/2025
+# Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li
+# Purpose: Camera image acquisition and depth processing from Spot's surround fisheye cameras,
+# including intrinsics caching, frame fetching, and depth image decoding with SDK patterns
+# Acknowledgements: Boston Dynamics Spot SDK examples for ImageClient usage and depth scaling,
+# SDK frame_helpers and image_pb2 for coordinate transforms and pixel formats
+
 """Camera utilities for surround capture with depth support.
 
 Prefer batch calls to ImageClient.get_image so responses in a cycle share a
@@ -17,7 +25,7 @@ Functions:
     Validate desired source names against the robot's advertised image sources.
 - decode_image(resp) -> np.ndarray | None
     JPEG/RAW to BGR image decode for visualization/inference.
-- get_frames(image_client, sources, include_depth=False) -> (frames, responses, depth_frames)
+- get_frames(image_client, sources, include_depth) -> (frames_dict, responses, depth_frames)
     Batch-fetch visual and optionally depth images using SDK build_image_request pattern.
     Returns decoded images, all responses, and depth images (in meters with NaN for invalid).
 """

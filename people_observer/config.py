@@ -1,3 +1,11 @@
+# Authors: Thor Lemke, Sally Hyun Hahm, Matteo Corrado
+# Last Update: 11/18/2025
+# Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li
+# Purpose: Centralized configuration management with constants and dataclasses for camera sources,
+# YOLO detection parameters, PTZ control settings, depth processing, and rotation angles
+# Acknowledgements: Boston Dynamics SDK documentation for camera rotation angles and PTZ parameters,
+# Ultralytics YOLO documentation for model and detection threshold settings
+
 """Configuration for the people observer.
 
 Camera intrinsics (focal length, distortion coefficients) are now queried dynamically

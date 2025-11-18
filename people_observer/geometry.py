@@ -1,3 +1,11 @@
+# Authors: Thor Lemke, Sally Hyun Hahm, Matteo Corrado
+# Last Update: 11/17/2025
+# Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li
+# Purpose: Coordinate geometry transformations for pixel-to-PTZ angle computation using
+# SDK intrinsics, fisheye undistortion, frame transforms, and bearing calculations
+# Acknowledgements: Boston Dynamics Spot SDK frame_helpers and math_helpers for SE3 transforms,
+# OpenCV fisheye camera model documentation, Claude for transform mode implementation
+
 """Geometry transformations for pixel-to-PTZ control.
 
 This module provides two approaches for computing PTZ angles from pixel detections:

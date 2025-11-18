@@ -1,3 +1,11 @@
+# Authors: Thor Lemke, Sally Hyun Hahm, Matteo Corrado
+# Last Update: 11/18/2025
+# Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li
+# Purpose: Robot connection wrapper and client initialization for Spot including authentication,
+# time sync, Spot CAM service registration, and stream configuration
+# Acknowledgements: Boston Dynamics Spot SDK examples for connection patterns and client setup,
+# SDK spot_cam services for CompositorClient and StreamQualityClient configuration
+
 """Robot I/O helpers: SDK setup, authentication, clients, stream config.
 
 References:

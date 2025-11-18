@@ -1,0 +1,15 @@
+# Core numerical + CV stack
+numpy==1.26.4
+opencv-contrib-python==4.10.0.84
+
+# MediaPipe hands/pose for perception pipeline
+mediapipe==0.10.14
+
+# Face recognition + emotion analysis (DeepFace bundles keras/tensorflow glue)
+deepface==0.0.92
+tensorflow==2.15.0
+
+# Misc utilities pulled indirectly by DeepFace but pinned to avoid resolver conflicts
+scipy==1.11.4
+pandas==2.2.2
+matplotlib==3.8.4

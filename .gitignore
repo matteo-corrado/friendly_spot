@@ -1,6 +1,7 @@
 /.github
 /detection
 /images
+/output_withdepth
 
 #yolo models
 *.pt

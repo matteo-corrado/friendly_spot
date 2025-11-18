@@ -9,7 +9,7 @@ import cv2
 import os
 import numpy as np
 import time
-from deepface import Deepface
+from deepface import DeepFace
 
 # System constants and parameters
 IMAGE_DIRECTORY = "dataset"

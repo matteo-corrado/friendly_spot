@@ -46,7 +46,7 @@ CAM_YAW_DEG: Dict[str, float] = {
 
 # Physical camera rotation angles (degrees, counterclockwise)
 # Spot's fisheye cameras are physically rotated relative to their mounting frames.
-# These rotation angles from the SDK are critical for accurate pixel→ray transforms.
+# These rotation angles from the SDK are critical for accurate pixel to ray transforms.
 # Source: boston-dynamics/spot-sdk examples (get_image.py, stitch_front_images.py)
 ROTATION_ANGLE: Dict[str, float] = {
     "frontleft_fisheye_image": -78.0,

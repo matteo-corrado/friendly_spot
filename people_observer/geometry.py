@@ -4,7 +4,7 @@ This module provides two approaches for computing PTZ angles from pixel detectio
 
 1. **Transform Mode (Recommended)**: 
    - Unprojects pixel to 3D ray using camera intrinsics (Kannala-Brandt fisheye or pinhole)
-   - Transforms ray through SDK frame tree (camera → body → PTZ)
+   - Transforms ray through SDK frame tree (camera to body to PTZ)
    - Accurate distortion correction and dynamic frame transforms
    
 2. **Bearing Mode (Fallback)**:
@@ -98,7 +98,7 @@ def rotate_pixel_for_camera(
     rotated_x = rotated_dx + cx
     rotated_y = rotated_dy + cy
     
-    logger.debug(f"Pixel rotation ({camera_name}, {angle_deg:.1f}°): ({pixel_x:.1f}, {pixel_y:.1f}) → ({rotated_x:.1f}, {rotated_y:.1f})")
+    logger.debug(f"Pixel rotation ({camera_name}, {angle_deg:.1f}°): ({pixel_x:.1f}, {pixel_y:.1f}) to ({rotated_x:.1f}, {rotated_y:.1f})")
     
     return rotated_x, rotated_y
 
@@ -117,7 +117,7 @@ def pixel_to_ptz_angles_transform(
     This implementation follows SDK best practices from fiducial_follow and fetch examples:
     1. Applies physical camera rotation correction to pixel coordinates
     2. Unprojects pixel to 3D ray in camera frame using intrinsics
-    3. Transforms ray through complete frame chain: camera → vision → body
+    3. Transforms ray through complete frame chain: camera to vision to body
     4. Computes bearing/tilt in body frame
     5. Accounts for PTZ mounting offset (if PTZ frame available in snapshot)
     6. Converts from body frame convention to PTZ convention
@@ -144,7 +144,7 @@ def pixel_to_ptz_angles_transform(
         RuntimeError: If frame transforms fail
         
     Frame Chain:
-        pixel → camera_sensor → body → vision (world reference)
+        pixel to camera_sensor to body to vision (world reference)
         Then compute PTZ angles relative to body (PTZ is body-mounted)
     """
     if intrinsics is None or intrinsics.get('model') is None:
@@ -183,7 +183,7 @@ def pixel_to_ptz_angles_transform(
         body_frame = frame_helpers.BODY_FRAME_NAME
         vision_frame = frame_helpers.VISION_FRAME_NAME
         
-        # Following fiducial_follow pattern: get camera_tform_body for camera→body
+        # Following fiducial_follow pattern: get camera_tform_body for camera to body
         # Note: get_a_tform_b(snapshot, A, B) returns A_tform_B (transform from B to A)
         camera_tform_body = frame_helpers.get_a_tform_b(
             frame_tree,
@@ -195,9 +195,10 @@ def pixel_to_ptz_angles_transform(
         vision_tform_body = frame_helpers.get_vision_tform_body(frame_tree)
         
         # Log the complete frame chain for debugging
-        logger.info(f"[TRANSFORM] Frame chain: {camera_frame} → body (for PTZ calculation)")
+        logger.info(f"[TRANSFORM] Frame chain: {camera_frame} to body (for PTZ calculation)")
         logger.info(f"[TRANSFORM] camera_tform_body position: [{camera_tform_body.x:.3f}, {camera_tform_body.y:.3f}, {camera_tform_body.z:.3f}]")
-        logger.info(f"[TRANSFORM] Reference: body → vision (world frame, for debugging)")
+        logger.info(f"[TRANSFORM] Reference: body to vision (world frame, for debugging)")
+
         logger.info(f"[TRANSFORM] vision_tform_body position: [{vision_tform_body.x:.3f}, {vision_tform_body.y:.3f}, {vision_tform_body.z:.3f}]")
         
         # Compute body_tform_camera (inverse transform for ray direction)
@@ -254,7 +255,7 @@ def pixel_to_ptz_angles_transform(
     ptz_tilt_deg = tilt_deg
     
     logger.info(f"[TRANSFORM] Final PTZ command: pan={ptz_pan_deg:.2f}°, tilt={ptz_tilt_deg:.2f}°")
-    logger.info(f"[TRANSFORM] Summary: pixel({pixel_x:.0f},{pixel_y:.0f}) → body bearing {bearing_deg:.1f}° → PTZ pan {ptz_pan_deg:.1f}°")
+    logger.info(f"[TRANSFORM] Summary: pixel({pixel_x:.0f},{pixel_y:.0f}) to body bearing {bearing_deg:.1f}° to PTZ pan {ptz_pan_deg:.1f}°")
     
     return ptz_pan_deg, ptz_tilt_deg
 

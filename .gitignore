@@ -10,10 +10,16 @@
 __pycache__/
 *.pyc
 *.pyo
+/__pycache__
 
 # Test outputs
 *.txt
-test_*.py
-people_observer/test_*.py
+
+# Credentials and secrets (NEVER COMMIT THESE)
+.env
+.env.*
+*credentials*
+*secrets*
+Activate.ps1
 
 TRANSFORM_IMPROVEMENTS.md

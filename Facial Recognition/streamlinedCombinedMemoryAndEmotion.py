@@ -179,7 +179,7 @@ class FaceRecognizer:
             
             # Converting to gray scale and detecting faces
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            rgb = cv2.cvtColot(gray, cv2.COLOR_GRAY2RGB)
+            rgb = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
             faces = self.face_cascade.detectMultiScale(gray, scaleFactor=IMAGE_SCALE_FACTOR, minNeighbors=MIN_NEIGHBORS, minSize=(MIN_FACE_DIMENSION, MIN_FACE_DIMENSION))
             
             # Loops over all faces

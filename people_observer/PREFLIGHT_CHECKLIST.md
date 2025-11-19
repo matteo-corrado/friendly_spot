@@ -3,13 +3,10 @@
 ## Summary of Changes
 
 ### GPU Acceleration
-- ✅ All YOLO inference now uses GPU by default with automatic CPU fallback
-- ✅ Detection pipeline uses `device="cuda"` with FP16 precision when GPU available
-- ✅ Device detection logs GPU name or warns about CPU fallback
-- ✅ Test scripts updated to use GPU for webcam benchmarks
-
-### Magic Numbers Eliminated
-All hardcoded values replaced with named constants in `config.py`:
+- All YOLO inference now uses GPU by default with automatic CPU fallback
+- Detection pipeline uses `device="cuda"` with FP16 precision when GPU available
+- Device detection logs GPU name or warns about CPU fallback
+- Test scripts updated to use GPU for webcam benchmarks
 
 **Detection Constants:**
 - `PERSON_CLASS_ID = 0`
@@ -76,11 +73,12 @@ pip install ultralytics opencv-python numpy torch
 ```
 
 ### 3. Robot Connection
-- [ ] Spot is powered on and connected to network
-- [ ] You have IP address: `____________`
-- [ ] Credentials are set in Activate.ps1 (no CLI auth needed)
-- [ ] Robot is NOT estopped
-- [ ] Spot CAM PTZ is functional
+Verify:
+- Spot is powered on and connected to network
+- You have IP address: `____________`
+- Credentials are set in Activate.ps1 (no CLI auth needed)
+- Robot is NOT estopped
+- Spot CAM PTZ is functional
 
 ### 4. Test Progression
 
@@ -130,11 +128,11 @@ INFO: ONCE MODE: Completed iteration 1, exiting
 ```
 
 **Success Criteria:**
-- [ ] No connection errors
-- [ ] All 5 cameras provide images
-- [ ] GPU detected and used
-- [ ] Person detections found (if someone visible)
-- [ ] Pan/tilt angles logged correctly
+- No connection errors
+- All 5 cameras provide images
+- GPU detected and used
+- Person detections found (if someone visible)
+- Pan/tilt angles logged correctly
 
 #### Step 2: Dry-Run with Visualization
 ```powershell
@@ -154,10 +152,10 @@ python -m people_observer.app --hostname <ROBOT_IP> --dry-run --visualize
 - Press 'q' to quit
 
 **Success Criteria:**
-- [ ] Visualization window appears
-- [ ] All cameras visible in grid
-- [ ] Detections rendered correctly
-- [ ] Smooth frame updates (no lag)
+- Visualization window appears
+- All cameras visible in grid
+- Detections rendered correctly
+- Smooth frame updates (no lag)
 
 #### Step 3: Live PTZ Test (Caution)
 ```powershell
@@ -168,16 +166,16 @@ python -m people_observer.app --hostname <ROBOT_IP> --once
 - FULL system including PTZ commands
 - Actual camera movement
 
-⚠️ **Safety:** Ensure clear space around Spot CAM. PTZ will move to track detected person.
+**SAFETY:** Ensure clear space around Spot CAM. PTZ will move to track detected person.
 
 **Expected:**
 - PTZ camera aims at detected person
 - Single iteration then exits
 
 **Success Criteria:**
-- [ ] PTZ moves smoothly to target
-- [ ] Aiming accuracy within ~5 degrees
-- [ ] No mechanical errors or collisions
+- PTZ moves smoothly to target
+- Aiming accuracy within ~5 degrees
+- No mechanical errors or collisions
 
 #### Step 4: Continuous Tracking
 ```powershell
@@ -195,10 +193,10 @@ python -m people_observer.app --hostname <ROBOT_IP> --visualize
 - Visualization shows live feed
 
 **Success Criteria:**
-- [ ] Smooth tracking without jitter
-- [ ] Handles person entering/leaving frame
-- [ ] No memory leaks over 1+ minute
-- [ ] Clean exit with Ctrl+C
+- Smooth tracking without jitter
+- Handles person entering/leaving frame
+- No memory leaks over 1+ minute
+- Clean exit with Ctrl+C
 
 ## Configuration Tuning
 
@@ -257,31 +255,31 @@ for s in sources:
 
 ### PTZ Not Moving
 **Check:**
-- [ ] `--dry-run` flag NOT used
-- [ ] PTZ service enabled: `robot.ensure_client(PtzClient)`
-- [ ] Spot CAM powered on
-- [ ] No E-stop active
+- `--dry-run` flag NOT used
+- PTZ service enabled: `robot.ensure_client(PtzClient)`
+- Spot CAM powered on
+- No E-stop active
 
 ### Slow Inference
 **Check:**
-- [ ] GPU actually being used (check logs for "YOLO using GPU")
-- [ ] Model size (try yolov8n.pt instead of yolov8x.pt)
-- [ ] Image resolution (640x640 is optimal)
+- GPU actually being used (check logs for "YOLO using GPU")
+- Model size (try yolov8n.pt instead of yolov8x.pt)
+- Image resolution (640x640 is optimal)
 
 ## File Manifest
 
 All changes made to:
-- ✅ `config.py` - Added all constants, FALLBACK_HFOV_DEG, YOLO_IOU_THRESHOLD
-- ✅ `detection.py` - GPU device selection with fallback, logging
-- ✅ `tracker.py` - Pass device to YoloDetector, use FALLBACK_HFOV_DEG
-- ✅ `io_robot.py` - Use cfg.ptz.compositor_screen and cfg.ptz.target_bitrate
-- ✅ `visualization.py` - All magic numbers replaced with constants
-- ✅ `test_yolo_webcam.py` - GPU device, all constants defined at top
-- ✅ `test_yolo_model.py` - No changes needed (already clean)
-- ✅ `cameras.py` - No changes needed (no magic numbers)
-- ✅ `geometry.py` - No changes needed (mathematical constants)
-- ✅ `ptz_control.py` - No changes needed (uses config values)
-- ✅ `app.py` - No changes needed (uses config)
+- `config.py` - Added all constants, FALLBACK_HFOV_DEG, YOLO_IOU_THRESHOLD
+- `detection.py` - GPU device selection with fallback, logging
+- `tracker.py` - Pass device to YoloDetector, use FALLBACK_HFOV_DEG
+- `io_robot.py` - Use cfg.ptz.compositor_screen and cfg.ptz.target_bitrate
+- `visualization.py` - All magic numbers replaced with constants
+- `test_yolo_webcam.py` - GPU device, all constants defined at top
+- `test_yolo_model.py` - No changes needed (already clean)
+- `cameras.py` - No changes needed (no magic numbers)
+- `geometry.py` - No changes needed (mathematical constants)
+- `ptz_control.py` - No changes needed (uses config values)
+- `app.py` - No changes needed (uses config)
 
 ## Post-Test Review
 

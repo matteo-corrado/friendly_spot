@@ -229,7 +229,7 @@ def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig, shutdown_reque
         x, y, w, h = det.bbox_xywh
         cx = x + w / 2.0
         cy = y + h * 0.3  # Target person's head/torso, not feet
-        logger.debug(f"Target point: bbox center=({x+w/2:.0f}, {y+h/2:.0f}) → head/torso=({cx:.0f}, {cy:.0f})")
+        logger.debug(f"Target point: bbox center=({x+w/2:.0f}, {y+h/2:.0f}) to head/torso=({cx:.0f}, {cy:.0f})")
         
         # Get image dimensions for rotation correction
         img_height, img_width = frames[name].shape[:2]

@@ -363,6 +363,12 @@ class PoseAnalyzer:
             return "standing"
         else:
             return "unknown"
+    
+    def close(self):
+        """Release MediaPipe resources."""
+        if hasattr(self, 'pose') and self.pose:
+            self.pose.close()
+            self.pose = None
 
 
 class PoseVisualizerApp:
@@ -410,7 +416,19 @@ class PoseVisualizerApp:
                 print(f"Frame {self.analyzer.frame_count}")
                     
         cap.release()
+        cv2.destroyAllWindows()
         print("Estimation Complete")
+
+
+    def close(self):
+        """Release MediaPipe resources (cross-platform compatible)."""
+        if hasattr(self, 'pose') and self.pose:
+            self.pose.close()
+            self.pose = None
+    
+    def __del__(self):
+        """Ensure cleanup on deletion."""
+        self.close()
 
 
 def main():

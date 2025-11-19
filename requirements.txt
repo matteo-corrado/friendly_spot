@@ -1,15 +1,76 @@
+# =============================================================================
+# Friendly Spot - Master Requirements
+# =============================================================================
+# Comprehensive dependencies for full perception → behavior → execution pipeline.
+# Includes all modules: perception, emotion/face recognition, YOLO detection,
+# Spot SDK integration.
+#
+# PLATFORM REQUIREMENTS:
+#   - Python 3.9-3.10 (Spot SDK: 3.7-3.10, MediaPipe: 3.8-3.11)
+#   - Python 3.11+ NOT SUPPORTED by Spot SDK
+#   - Windows: x86_64 only (no ARM64)
+#   - macOS: For GPU on M1/M2, also install: pip install tensorflow-metal
+#   - Linux: Best support; ARM64 requires custom TensorFlow build
+#
+# INSTALLATION:
+#   pip install -r requirements.txt
+#
+# For offline environments, pre-download models:
+#   python scripts/download_models.py
+# =============================================================================
+
+# Boston Dynamics Spot SDK
+--find-links ../spot-sdk/prebuilt
+bosdyn-api==5.0.1.2
+bosdyn-client==5.0.1.2
+bosdyn-core==5.0.1.2
+bosdyn-mission==5.0.1.2
+bosdyn-orbit==5.0.1.2
+bosdyn-scout==5.0.1.2
+bosdyn-choreography-client==5.0.1.2
+bosdyn-choreography-protos==5.0.1.2
+
 # Core numerical + CV stack
-numpy==1.26.4
-opencv-contrib-python==4.10.0.84
+numpy==1.26.4  # CRITICAL: Pin to 1.x - compatible with all packages
+opencv-contrib-python==4.11.0.86  # Latest stable
 
 # MediaPipe hands/pose for perception pipeline
-mediapipe==0.10.14
+# NOTE: Requires Python 3.8-3.11, no 3.12+ support yet
+# CRITICAL FIX: MediaPipe 0.10.9 is the last version WITHOUT TensorFlow import hang on Windows
+# Versions 0.10.10+ try to import tensorflow.tools.docs which causes hang
+mediapipe==0.10.9
 
-# Face recognition + emotion analysis (DeepFace bundles keras/tensorflow glue)
-deepface==0.0.92
+# Deep learning frameworks
+# COMPATIBILITY FIX: TF 2.15 + Keras 2.15 is the last known-good combo for MediaPipe + DeepFace
+# TF 2.16+ introduces JAX dependencies that cause hangs on Windows import
+# GPU SUPPORT: Base TensorFlow auto-detects GPU if compatible CUDA/drivers installed
+#   - Linux/Windows NVIDIA: Requires CUDA 11.8 + cuDNN 8.6 + nvidia-cudnn-cu11
+#   - macOS M1/M2: Install tensorflow-metal separately for GPU acceleration
+#   - CPU-only: Works out of box on all platforms (current default)
 tensorflow==2.15.0
+keras==2.15.0
+tf-keras==2.15.1  # Provides tensorflow.keras compatibility layer for DeepFace
 
-# Misc utilities pulled indirectly by DeepFace but pinned to avoid resolver conflicts
-scipy==1.11.4
-pandas==2.2.2
-matplotlib==3.8.4
+# Face recognition + emotion analysis
+deepface==0.0.95  # Works with TF 2.15 + Keras 2.15 + tf-keras 2.15.1
+
+# YOLO person detection (for people_observer module)
+ultralytics>=8.0.0  # YOLOv8, includes PyTorch
+torch>=2.0.0  # PyTorch backend (CPU/CUDA/MPS auto-detected)
+torchvision>=0.15.0
+
+# Misc utilities (pulled by DeepFace/YOLO, pinned to avoid resolver conflicts)
+scipy==1.15.3  # Updated for better performance
+pandas==2.3.3
+matplotlib==3.10.7
+Pillow>=12.0.0
+
+# Protobuf compatibility
+# MediaPipe 0.10.9 requires: protobuf<4,>=3.11
+# TensorFlow 2.15 works with: protobuf>=3.20.3,<5.0
+# Pinning to protobuf 3.20.3 for maximum compatibility
+protobuf==3.20.3
+
+# Optional: For servers/Docker (headless environments)
+# Uncomment and replace opencv-contrib-python with:
+# opencv-contrib-python-headless==4.10.0.84

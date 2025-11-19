@@ -1,3 +1,29 @@
-opencv-python
-deepface
-tf_keras
+# =============================================================================
+# Emotion Recognition Module - Requirements
+# =============================================================================
+# Standalone emotion detection using DeepFace.
+#
+# PLATFORM REQUIREMENTS:
+#   - Python 3.9-3.10 recommended (MediaPipe/TensorFlow compatibility)
+#   - Windows/macOS/Linux supported
+#   - macOS M1/M2: Add `pip install tensorflow-metal` for GPU acceleration
+#
+# USAGE:
+#   pip install -r requirements.txt
+# =============================================================================
+
+# Core CV
+numpy==1.26.4
+opencv-python==4.10.0.84
+
+# Deep learning + emotion detection
+tensorflow==2.15.0
+keras==2.15.0
+deepface==0.0.92
+tf-keras==2.15.0
+
+# Protobuf compatibility
+protobuf>=3.19.4,<5.0,!=4.24.0,!=5.28.0
+
+# Optional: For headless environments
+# opencv-python-headless==4.10.0.84

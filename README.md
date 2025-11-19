@@ -1,55 +1,238 @@
-# friendly_spot
+# Friendly Spot: Socially-Aware Robot Interaction
 
-Behavioral and vision scripts for Spot: person-to-PTZ aiming with YOLO, the Boston Dynamics Fetch tutorial flow (Network Compute Bridge), image extraction helpers, and a facial recognition PoC.
+**ENGS 69.15 - Robotics Perception, Dartmouth College**
 
-## What’s here
-- `Behavioral/spot_yolo_person_to_ptz.py` — Run YOLO on surround fisheyes, map pixel X to robot-frame bearing (per-camera yaw/FOV), and slew the Spot CAM PTZ.
-- `Behavioral/fetch/network_compute_server.py` — TensorFlow object detection worker registering with Spot’s directory (Network Compute Bridge).
-- `Behavioral/fetch/fetch.py` — Client side of Fetch: request detections, walk, grasp, carry, and drop.
-- `Behavioral/fetch/capture_images.py` — Save images from a chosen camera source.
-- `Behavioral/human_image_extractor.py` — WIP scaffold: capture images and emulate parts of the Fetch flow.
-- `Facial Recognition/trainMemory.py` — LBPH trainer + webcam recognizer demo (requires `opencv-contrib-python`).
+**Authors:** Thor Lemke, Sally Hyun Hahm, Matteo Corrado
 
-## Requirements
-Install the Boston Dynamics Spot SDK wheels first from the sibling `spot-sdk/prebuilt` directory in this workspace, then the Python dependencies in `requirements.txt`.
+A perception and behavior system enabling Boston Dynamics Spot to recognize people, interpret social cues, and respond with appropriate behaviors. Integrates computer vision (facial recognition, emotion detection, pose estimation, gesture recognition) with a comfort-based behavior model to enable natural human-robot interaction.
 
-Authentication: your venv `Activate.ps1` supplies credentials/tokens; do not include user/password on the CLI. Scripts that rely on `bosdyn.client.util.authenticate` will use your stored token. Avoid committing secrets.
+---
 
-Notes:
-- The Fetch tutorial files depend on live robot services (Image, NetworkComputeBridge, Manipulation, PTZ) and time sync.
-- The TensorFlow Object Detection API is required for `network_compute_server.py` (`object_detection.utils.label_map_util`). Install per the TF Models instructions, or point to a model directory exported with a SavedModel and a matching labels `.pbtxt`.
+## System Overview
 
-## Install
-1) Activate your venv (with auth in `Activate.ps1`).
-2) Install Spot SDK wheels from `spot-sdk/prebuilt/*.whl`.
-3) `pip install -r requirements.txt`.
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           Friendly Spot Pipeline                        │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    │
+        ┌───────────────────────────┼───────────────────────────┐
+        ▼                           ▼                           ▼
+  ┌──────────┐              ┌──────────────┐            ┌─────────────┐
+  │  Webcam  │              │ Spot PTZ Cam │            │ Spot Cameras│
+  │(Dev/Test)│              │ (ImageClient)│            │  (Surround) │
+  └─────┬────┘              └──────┬───────┘            └──────┬──────┘
+        │                          │                           │
+        └──────────────┬───────────┴───────────┬───────────────┘
+                       ▼                       ▼
+              ┌─────────────────┐   ┌──────────────────────┐
+              │ Video Sources   │   │ People Observer      │
+              │  (Abstraction)  │   │ (YOLO Person Track)  │
+              └────────┬────────┘   └──────────┬───────────┘
+                       │                       │
+                       ▼                       │
+              ┌─────────────────┐              │
+              │   Perception    │              │
+              │    Pipeline     │◄─────────────┘
+              │                 │
+              │ • Face ID       │
+              │ • Emotion       │
+              │ • Pose/Action   │
+              │ • Gesture       │
+              │ • Distance      │
+              └────────┬────────┘
+                       │
+                       ▼
+              ┌─────────────────┐
+              │  Comfort Model  │
+              │  (ML Behavior   │
+              │    Planner)     │
+              └────────┬────────┘
+                       │
+                       ▼
+              ┌─────────────────┐
+              │    Behavior     │
+              │    Executor     │
+              │                 │
+              │ • Approach      │
+              │ • Back Away     │
+              │ • Sit/Stand     │
+              └────────┬────────┘
+                       │
+                       ▼
+              ┌─────────────────┐
+              │  Spot Robot     │
+              │  (Boston        │
+              │   Dynamics SDK) │
+              └─────────────────┘
+```
 
-## Run snippets (no credentials on CLI)
-- YOLO → PTZ aiming
-  - `python Behavioral/spot_yolo_person_to_ptz.py --robot <ROBOT_IP>`
-  - Adjust constants in the script for compositor screen, bitrate, and camera yaw/FOV if needed.
+---
 
-- Network Compute worker (TensorFlow)
-  - `python Behavioral/fetch/network_compute_server.py -m <MODEL_DIR> <LABELS.pbtxt> -n <SERVICE_NAME> --hostname <ROBOT_IP>`
-  - This registers the worker; ensure the TF OD API is installed and the model is valid.
+## Key Features
 
-- Fetch client
-  - `python Behavioral/fetch/fetch.py --hostname <ROBOT_IP> --ml-service <SERVICE_NAME> --model <MODEL_NAME> --person-model <PERSON_MODEL>`
+### Perception Pipeline
+- **Facial Recognition:** Identify known individuals using LBPH recognizer (OpenCV)
+- **Emotion Detection:** 7-class emotion recognition via DeepFace (happy, sad, angry, surprise, fear, disgust, neutral)
+- **Pose Estimation:** MediaPipe-based body pose and action classification (standing, sitting, waving, etc.)
+- **Gesture Recognition:** Hand gesture detection (open hand, closed fist)
+- **Distance Estimation:** Approximate human distance from pose landmark spans
 
-- Capture images
-  - `python Behavioral/fetch/capture_images.py --hostname <ROBOT_IP> --image-source frontleft_fisheye_image --folder out/`
+### Behavior Planning
+Comfort-based model maps perception inputs to robot behaviors:
+- `GO_CLOSE` / `GO_CLOSE_SLOWLY` - Approach when person is comfortable
+- `STAY` - Maintain position (neutral comfort)
+- `BACK_AWAY` / `BACK_AWAY_SLOWLY` - Retreat when person is uncomfortable
+- `SIT` - De-escalate presence (low comfort)
 
-- Facial recognition PoC
-  - Prepare a `dataset/` with one subfolder per person of images, then:
-  - `python "Facial Recognition/trainMemory.py"`
+### People Observer
+Real-time person tracking with PTZ following:
+- GPU-accelerated YOLO detection on 5 surround cameras
+- 3D bearing estimation using SDK intrinsics and transforms
+- Automatic PTZ camera aiming at tracked individuals
 
-## Conventions
-- Always perform time sync before issuing commands. Use a `LeaseKeepAlive` during motion/manipulation sequences.
-- Surround camera names: `frontleft_fisheye_image`, `frontright_fisheye_image`, `left_fisheye_image`, `right_fisheye_image`, `back_fisheye_image`.
-- PTZ streaming is configured via `CompositorClient` and `StreamQualityClient`; tune `COMPOSITOR_SCREEN` and bitrate for your setup.
+---
 
-## Troubleshooting
-- Empty detections: verify model and labels, confirm `NetworkComputeBridge` worker is registered, and check Wi‑Fi.
-- PTZ not moving: confirm CAM PTZ name and permissions; compositor screen must show PTZ.
-- Import error `object_detection`: install TensorFlow Object Detection API.
-- Torch/TensorFlow wheels on Windows: prefer CPU builds unless you have a compatible GPU/CUDA stack.
+## Project Structure
+
+```
+friendly_spot/
+├── friendly_spot_main.py        # Main pipeline orchestrator
+├── robot_io.py                  # Unified Spot SDK connection/client management
+├── video_sources.py             # Video source abstraction (webcam, PTZ, WebRTC)
+├── run_pipeline.py              # Perception pipeline (face, emotion, pose, gesture)
+├── behavior_planner.py          # Comfort model and behavior decision logic
+├── behavior_executor.py         # Robot command execution (sit, stand, walk)
+│
+├── people_observer/             # Person detection and PTZ tracking
+│   ├── app.py                   # CLI entry point
+│   ├── tracker.py               # Main detection/tracking loop
+│   ├── detection.py             # YOLO detection wrapper
+│   ├── cameras.py               # Multi-camera image fetching
+│   ├── geometry.py              # 3D bearing/transform calculations
+│   └── ptz_control.py           # PTZ aiming commands
+│
+├── Facial Recognition/          # Face recognition and emotion models
+│   ├── streamlinedCombinedMemoryAndEmotion.py
+│   ├── streamlinedRuleBasedEstimation.py
+│   └── trainMemory.py           # LBPH face recognizer trainer
+│
+├── scripts/                     # Utility scripts
+│   └── download_models.py       # Download YOLO/MediaPipe models
+│
+├── requirements.txt             # Python dependencies
+├── INSTALL.md                   # Platform-specific installation guide
+├── PIPELINE_README.md           # Detailed pipeline documentation
+└── SECURITY.md                  # Security and credential management
+```
+
+---
+
+## Quick Start
+
+### Prerequisites
+- Python 3.9 or 3.10 (Spot SDK requirement)
+- Boston Dynamics Spot SDK v5.0.1.2
+- Robot credentials configured in environment variables
+
+### Installation
+
+```bash
+# 1. Clone repository
+git clone https://github.com/yourusername/friendly_spot.git
+cd friendly_spot
+
+# 2. Install Spot SDK wheels
+pip install ../spot-sdk/prebuilt/*.whl
+
+# 3. Install dependencies
+pip install -r requirements.txt
+
+# 4. Configure credentials (see SECURITY.md)
+cp .env.template .env
+# Edit .env with your robot credentials
+```
+
+### Run Examples
+
+```bash
+# Full pipeline with webcam (development/testing)
+python friendly_spot_main.py --webcam
+
+# Full pipeline with robot PTZ camera
+python friendly_spot_main.py --robot <ROBOT_IP>
+
+# Enable verbose debugging
+python friendly_spot_main.py --robot <ROBOT_IP> --verbose
+
+# People observer (YOLO tracking + PTZ control)
+python -m people_observer.app <ROBOT_IP> --visualize
+
+# Run without executing robot commands (perception only)
+python friendly_spot_main.py --robot <ROBOT_IP> --no-execute
+```
+
+---
+
+## Documentation
+
+- **[INSTALL.md](INSTALL.md)** - Platform-specific installation instructions (Windows, macOS, Linux)
+- **[PIPELINE_README.md](PIPELINE_README.md)** - Detailed pipeline architecture and component descriptions
+- **[SECURITY.md](SECURITY.md)** - Credential management and security best practices
+- **[people_observer/README.md](people_observer/README.md)** - Person detection and PTZ tracking system
+
+---
+
+## Technical Requirements
+
+### Software
+- **Python:** 3.9 or 3.10 only
+- **Spot SDK:** 5.0.1.2 (included in workspace)
+- **Core Libraries:**
+  - OpenCV (4.x) - Computer vision
+  - TensorFlow (2.15+) - DeepFace emotion detection
+  - MediaPipe (0.10+) - Pose and hand tracking
+  - Ultralytics (8.x) - YOLO detection
+  - DeepFace - Facial emotion analysis
+
+### Hardware
+- Boston Dynamics Spot robot with Spot CAM (PTZ camera)
+- Development machine: x86_64 CPU (GPU optional but recommended for YOLO)
+- Network: Local Wi-Fi connection to robot (latency < 50ms recommended)
+
+---
+
+## Development Notes
+
+### Authentication
+Robot credentials are managed via environment variables (`.env` file). Never commit credentials to version control. See `SECURITY.md` for setup instructions.
+
+### Cross-Platform Support
+The codebase is tested on Windows, macOS, and Linux:
+- Platform-specific webcam backends (DirectShow, AVFoundation, V4L2)
+- Windows-compatible signal handling (SIGINT only, no SIGTERM)
+- TensorFlow GPU memory growth for all platforms
+- Path handling uses `os.path.join()` for portability
+
+### Code Organization
+- **Unified robot I/O:** All robot connections via `robot_io.py` module
+- **Context managers:** Automatic lease and E-Stop management
+- **Lazy client initialization:** Clients created only when needed
+- **No wrapper functions:** Direct usage of `robot_io` throughout codebase
+
+---
+
+## Acknowledgments
+
+Built with the Boston Dynamics Spot SDK. Thanks to the teaching staff of ENGS 69.15 at Dartmouth College for guidance and support.
+
+### References
+- [Boston Dynamics Spot SDK Documentation](https://dev.bostondynamics.com)
+- [DeepFace Library](https://github.com/serengil/deepface)
+- [MediaPipe Solutions](https://developers.google.com/mediapipe)
+- [Ultralytics YOLO](https://github.com/ultralytics/ultralytics)
+
+---
+
+## License
+
+This project is for educational purposes as part of ENGS 69.15 at Dartmouth College. Boston Dynamics SDK components are subject to the Boston Dynamics Software Development Kit License.

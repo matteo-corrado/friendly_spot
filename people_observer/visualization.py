@@ -249,7 +249,7 @@ def save_annotated_frames(frames_dict: Dict[str, np.ndarray],
                 logger.debug(f"  ✓ {filename} ({file_size:,} bytes)")
             else:
                 failed_files.append(filename)
-                logger.error(f"  ✗ Failed to write {filename}")
+                logger.error(f"  Failed to write {filename}")
         
         if saved_count == len(frames_dict):
             logger.info(f"✓ Saved all {saved_count} frames to {abs_output_dir}")

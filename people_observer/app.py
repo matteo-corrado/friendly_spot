@@ -9,13 +9,21 @@ import argparse
 import logging
 import signal
 import sys
+from pathlib import Path
 
 import bosdyn.client.util
 from bosdyn.client.image import ImageClient
+from bosdyn.client.spot_cam.compositor import CompositorClient
+from bosdyn.client.spot_cam.streamquality import StreamQualityClient
 from bosdyn.client.spot_cam.ptz import PtzClient
 
+# Import from parent robot_io module
+parent_dir = Path(__file__).parent.parent
+if str(parent_dir) not in sys.path:
+    sys.path.insert(0, str(parent_dir))
+
+from robot_io import create_robot, configure_stream
 from .config import RuntimeConfig, TRANSFORM_MODE
-from .io_robot import connect, ensure_clients, configure_stream
 from .cameras import fetch_image_sources
 from .tracker import run_loop
 
@@ -48,9 +56,15 @@ def main(argv=None):
                     help="Show live detection visualization with OpenCV")
     ap.add_argument("--save-images", type=str, metavar="DIR",
                     help="Save annotated frames to specified directory")
+    ap.add_argument("--verbose", action="store_true",
+                    help="Enable verbose debug logging")
     args = ap.parse_args(argv)
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    # Configure logging level based on verbose flag
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    logging.basicConfig(level=log_level, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    if args.verbose:
+        logger.info("Verbose mode enabled")
 
     cfg = RuntimeConfig()
     cfg.observer_mode = args.mode
@@ -81,9 +95,24 @@ def main(argv=None):
         logger.info("VISUALIZATION MODE: OpenCV windows will display detections")
 
     logger.info(f"Connecting to robot at {args.hostname}")
-    robot = connect(args.hostname)
-    image_client, compositor, stream_quality = ensure_clients(robot)
-    configure_stream(robot, cfg)
+    robot = create_robot(
+        hostname=args.hostname,
+        client_name="PeopleObserver",
+        register_spot_cam=True,
+        verbose=args.verbose
+    )
+    
+    # Get service clients
+    image_client = robot.ensure_client(ImageClient.default_service_name)
+    compositor = robot.ensure_client(CompositorClient.default_service_name)
+    stream_quality = robot.ensure_client(StreamQualityClient.default_service_name)
+    
+    # Configure PTZ stream
+    configure_stream(
+        robot,
+        compositor_screen=cfg.ptz.compositor_screen,
+        target_bitrate=cfg.ptz.target_bitrate
+    )
     
     # Fetch camera intrinsics at startup
     logger.info("Fetching camera intrinsics from robot...")

@@ -47,14 +47,11 @@ import argparse
 import logging
 import signal
 
-from robot_io import create_robot
-from video_sources import create_video_source
-from run_pipeline import PerceptionPipeline
-from behavior_planner import ComfortModel
-from behavior_executor import BehaviorExecutor
-from robot_action_monitor import RobotActionMonitor
-from observer_bridge import ObserverBridge, ObserverConfig
-from unified_visualization import visualize_pipeline_frame, close_all_windows
+from src.robot import create_robot, RobotActionMonitor, ObserverBridge, ObserverConfig
+from src.video import create_video_source
+from src.perception import PerceptionPipeline
+from src.behavior import ComfortModel, BehaviorExecutor
+from src.visualization import visualize_pipeline_frame, close_all_windows
 
 # Configure logging (will be updated if --verbose is set)
 logging.basicConfig(

@@ -9,7 +9,10 @@ import cv2
 import os
 import numpy as np
 import time
+import logging
 from deepface import DeepFace
+
+logger = logging.getLogger(__name__)
 
 # System constants and parameters
 IMAGE_DIRECTORY = "dataset"
@@ -48,8 +51,8 @@ class FaceRecognizer:
             └── person1/
                 └── 1.jpg
         """
-        if not os.path.isdir(dataset_path):
-            print(f"Error: Directory '{dataset_path}' not found")
+        if not os.path.exists(dataset_path):
+            logger.error(f"Directory '{dataset_path}' not found")
             return False
         
         print("Training face recognizer...")
@@ -100,12 +103,12 @@ class FaceRecognizer:
             self.current_label += 1
         
         if len(self.face_data) == 0:
-            print("Error: No faces found in dataset")
+            logger.warning("No faces found in dataset - face recognition will return 'unknown'")
             return False
         
         # Train the recognizer
         self.face_recognizer.train(self.face_data, np.array(self.face_labels))
-        print(f"Training complete! Recognized {len(self.label_names)} people")
+        logger.info(f"Training complete! Recognized {len(self.label_names)} people")
         return True
     
     def initialize_facial_data(self, directory):
@@ -157,11 +160,11 @@ class FaceRecognizer:
         """
         cap = cv2.VideoCapture(0)
         
-        if not cap.isOpened():
-            print("Error: Cannot access webcam")
+        if not self.cap.isOpened():
+            logger.error("Cannot access webcam")
             return
         
-        print("Starting face recognition")
+        logger.info("Starting face recognition")
         
         # Initalization process include capturing the existing number of people and images in the dataset, and training based upond existing data
         retrainCount = 1
@@ -181,7 +184,8 @@ class FaceRecognizer:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             rgb = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
             faces = self.face_cascade.detectMultiScale(gray, scaleFactor=IMAGE_SCALE_FACTOR, minNeighbors=MIN_NEIGHBORS, minSize=(MIN_FACE_DIMENSION, MIN_FACE_DIMENSION))
-            
+            print(f"Retrain Count Value: {retrainCount}")
+
             # Loops over all faces
             for (x, y, w, h) in faces:
                 

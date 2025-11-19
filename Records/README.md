@@ -1,10 +1,12 @@
 # Friendly Spot: Socially-Aware Robot Interaction
 
-**ENGS 69.15 - Robotics Perception, Dartmouth College**
+**COSC 69.15/169.15 - Robotics Perception and Interaction, Dartmouth College**
 
-**Authors:** Thor Lemke, Sally Hyun Hahm, Matteo Corrado
+**Authors:** Thor Lemke, Sally Hyun Hahm, Matteo Corrado  
+**Version:** 2.0.0 (Refactored Modular Architecture)  
+**Date:** January 2025
 
-A perception and behavior system enabling Boston Dynamics Spot to recognize people, interpret social cues, and respond with appropriate behaviors. Integrates computer vision (facial recognition, emotion detection, pose estimation, gesture recognition) with a comfort-based behavior model to enable natural human-robot interaction.
+A perception and behavior system enabling Boston Dynamics Spot to detect people, track their movements, estimate social distance, and respond with appropriate proximity-aware behaviors. Uses YOLO person detection, PTZ camera tracking, and a comfort-based behavior model for natural human-robot interaction.
 
 ---
 

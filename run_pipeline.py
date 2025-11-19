@@ -281,12 +281,16 @@ class PerceptionPipeline:
                                                        minNeighbors=getattr(face_mod, "MIN_NEIGHBORS", 5),
                                                        minSize=(getattr(face_mod, "MIN_FACE_DIMENSION", 30),
                                                                 getattr(face_mod, "MIN_FACE_DIMENSION", 30)))
+        face_bbox = None
+        emotion_scores = None
+        
         if len(faces) == 0:
             face_label = "unknown"
             emotion_label = "neutral"
         else:
             # take most confident face (largest area)
             x, y, w, h = max(faces, key=lambda r: r[2] * r[3])
+            face_bbox = (x, y, w, h)  # Store for visualization
             face_roi_gray = gray[y:y + h, x:x + w]
             try:
                 label, confidence = self.face.face_recognizer.predict(face_roi_gray)
@@ -316,6 +320,7 @@ class PerceptionPipeline:
                     silent=True
                 )
                 emotion_label = emotion[0]['dominant_emotion']
+                emotion_scores = emotion[0].get('emotion', {})  # Store full scores for visualization
             except Exception:
                 emotion_label = 'neutral'
 
@@ -326,6 +331,10 @@ class PerceptionPipeline:
             emotion_label=emotion_label,
             pose_label=pose_label,
             gesture_label=gesture_label,
+            face_bbox=face_bbox,
+            pose_landmarks=landmarks,  # Already computed above
+            emotion_scores=emotion_scores,
+            frame=frame,  # Store the analyzed frame for visualization alignment
         )
         return perception
 

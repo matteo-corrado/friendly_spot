@@ -30,6 +30,44 @@ COLOR_BLACK = (0, 0, 0)
 MASK_ALPHA = 0.4
 
 
+def draw_emotion_bars(image: np.ndarray, emotion_scores: dict, 
+                      x: int, y: int, width: int = 150, height: int = 100) -> None:
+    """Draw emotion scores as horizontal bars.
+    
+    Args:
+        image: Image to draw on (modified in-place)
+        emotion_scores: Dict mapping emotion names to confidence scores (0-100)
+        x, y: Top-left position for bar chart
+        width: Width of bars
+        height: Total height of chart
+    """
+    if not emotion_scores:
+        return
+    
+    # Sort emotions by score
+    emotions = sorted(emotion_scores.items(), key=lambda kv: kv[1], reverse=True)
+    num_emotions = len(emotions)
+    bar_height = height // num_emotions
+    
+    # Background
+    cv2.rectangle(image, (x, y), (x + width, y + height), COLOR_BLACK, -1)
+    cv2.rectangle(image, (x, y), (x + width, y + height), COLOR_WHITE, 1)
+    
+    # Draw bars
+    for i, (emotion, score) in enumerate(emotions):
+        bar_y = y + i * bar_height
+        bar_w = int((score / 100.0) * (width - 60))
+        
+        # Bar
+        cv2.rectangle(image, (x + 5, bar_y + 3), 
+                     (x + 5 + bar_w, bar_y + bar_height - 3), COLOR_BLUE, -1)
+        
+        # Label
+        label = f"{emotion[:6]}: {score:.0f}%"
+        cv2.putText(image, label, (x + 8, bar_y + bar_height - 8), 
+                   FONT, 0.3, COLOR_WHITE, 1)
+
+
 def create_depth_colormap(depth_img: np.ndarray, min_dist: float = 0.5, 
                           max_dist: float = 5.0) -> np.ndarray:
     """Convert depth image to color-coded visualization.
@@ -123,7 +161,7 @@ def draw_perception_results(image: np.ndarray, perception_data,
     
     Args:
         image: BGR image
-        perception_data: PerceptionData with pose, face, emotion, gesture
+        perception_data: PerceptionInput with pose, face, emotion, gesture
         distance: Distance to person in meters
     
     Returns:
@@ -132,16 +170,58 @@ def draw_perception_results(image: np.ndarray, perception_data,
     img = image.copy()
     h, w = img.shape[:2]
     
-    # Draw pose landmarks if available
-    if hasattr(perception_data, 'pose_result') and perception_data.pose_result:
-        landmarks = np.array(perception_data.pose_result.get('keypoints', []))
-        if len(landmarks) > 0:
-            for kp in landmarks:
-                x, y = int(kp[0]), int(kp[1])
-                if 0 <= x < w and 0 <= y < h:
-                    cv2.circle(img, (x, y), 3, COLOR_BLUE, -1)
+    # Draw face bbox if available
+    if hasattr(perception_data, 'face_bbox') and perception_data.face_bbox is not None:
+        x, y, fw, fh = perception_data.face_bbox
+        # Draw green rectangle around face
+        cv2.rectangle(img, (x, y), (x + fw, y + fh), COLOR_GREEN, 2)
+        
+        # Draw emotion label above face bbox
+        if hasattr(perception_data, 'emotion_label') and perception_data.emotion_label:
+            emotion_text = perception_data.emotion_label.upper()
+            text_size = cv2.getTextSize(emotion_text, FONT, FONT_SCALE_SMALL, 2)[0]
+            text_x = x
+            text_y = y - 10
+            # Background for text
+            cv2.rectangle(img, (text_x, text_y - text_size[1] - 4),
+                         (text_x + text_size[0] + 4, text_y + 2), COLOR_BLACK, -1)
+            cv2.putText(img, emotion_text, (text_x + 2, text_y), FONT, 
+                       FONT_SCALE_SMALL, COLOR_GREEN, 2)
+        
+        # Draw emotion score bars below face if available
+        if hasattr(perception_data, 'emotion_scores') and perception_data.emotion_scores:
+            bar_x = x
+            bar_y = y + fh + 10
+            # Ensure bars don't go off screen
+            if bar_y + 100 < h:
+                draw_emotion_bars(img, perception_data.emotion_scores, bar_x, bar_y)
     
-    # Draw info panel
+    # Draw pose landmarks if available
+    if hasattr(perception_data, 'pose_landmarks') and perception_data.pose_landmarks is not None:
+        landmarks = perception_data.pose_landmarks
+        if len(landmarks) > 0:
+            # Draw keypoints
+            for kp in landmarks:
+                if len(kp) >= 2:  # Has x, y
+                    x_kp = int(kp[0] * w) if kp[0] <= 1.0 else int(kp[0])
+                    y_kp = int(kp[1] * h) if kp[1] <= 1.0 else int(kp[1])
+                    if 0 <= x_kp < w and 0 <= y_kp < h:
+                        cv2.circle(img, (x_kp, y_kp), 4, COLOR_BLUE, -1)
+                        cv2.circle(img, (x_kp, y_kp), 5, COLOR_WHITE, 1)
+    
+    # Draw gesture indicator if not "none"
+    if hasattr(perception_data, 'gesture_label') and perception_data.gesture_label and perception_data.gesture_label != 'none':
+        gesture_text = f"{perception_data.gesture_label.upper()}"
+        text_size = cv2.getTextSize(gesture_text, FONT, FONT_SCALE, 2)[0]
+        # Position in top-right corner
+        text_x = w - text_size[0] - 20
+        text_y = 40
+        cv2.rectangle(img, (text_x - 5, text_y - text_size[1] - 5),
+                     (text_x + text_size[0] + 5, text_y + 5), COLOR_YELLOW, -1)
+        cv2.putText(img, gesture_text, (text_x, text_y), FONT, FONT_SCALE, 
+                   COLOR_BLACK, 2)
+    
+    # Draw info panel in top-left
     info_lines = []
     if hasattr(perception_data, 'pose_label'):
         info_lines.append(f"Pose: {perception_data.pose_label}")
@@ -154,7 +234,6 @@ def draw_perception_results(image: np.ndarray, perception_data,
     if distance is not None:
         info_lines.append(f"Distance: {distance:.2f}m")
     
-    # Draw info panel in top-left
     y_offset = 30
     for line in info_lines:
         text_size = cv2.getTextSize(line, FONT, FONT_SCALE_SMALL, 1)[0]
@@ -224,31 +303,26 @@ def visualize_pipeline_frame(image: np.ndarray,
     """Unified visualization for perception pipeline.
     
     Args:
-        image: Input frame
+        image: Input frame (PTZ camera image)
         perception_data: Optional PerceptionData results
-        person_detection: Optional PersonDetection with bbox/mask/depth
+        person_detection: Optional PersonDetection with bbox/mask/depth (from surround cameras)
         show: Display in window
         save_dir: Directory to save frame (None = don't save)
         iteration: Iteration number for filename
     
     Returns:
         Key code if showing window, None otherwise
+    
+    Note: PersonDetection bbox/mask from surround cameras are NOT drawn on PTZ image,
+          since they were detected in a different camera frame. Only perception results
+          (face bbox, pose, emotion, etc.) from PTZ image are drawn.
     """
     annotated = image.copy()
     
-    # Draw person detection with mask if available
-    if person_detection is not None:
-        annotated = draw_detection_with_mask(
-            annotated,
-            bbox=person_detection.bbox,
-            confidence=person_detection.confidence,
-            distance=person_detection.distance_m,
-            mask=person_detection.mask,
-            depth_img=person_detection.depth_frame,
-            label="Person"
-        )
+    # DO NOT draw person detection bbox/mask from surround cameras on PTZ image
+    # The detection came from a different camera frame and coordinates don't align
     
-    # Draw perception results
+    # Draw perception results (face bbox, landmarks, pose, emotion, gesture from PTZ)
     if perception_data is not None:
         distance = perception_data.distance_m if hasattr(perception_data, 'distance_m') else None
         annotated = draw_perception_results(annotated, perception_data, distance)

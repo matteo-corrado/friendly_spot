@@ -72,6 +72,7 @@ class ObserverBridge:
         # Threading
         self.thread = None
         self.running = False
+        self.ready = threading.Event()  # Signals when initialization complete
         self.detection_queue = queue.Queue(maxsize=1)  # Only keep latest detection
         
         # State
@@ -86,9 +87,27 @@ class ObserverBridge:
         
         logger.debug(f"Starting observer bridge: surround_fps={self.config.surround_fps}, ptz_fps={self.config.ptz_fps}")
         self.running = True
+        self.ready.clear()  # Reset ready flag
         self.thread = threading.Thread(target=self._observer_loop, daemon=True)
         self.thread.start()
-        logger.info("Observer bridge started")
+        logger.info("Observer bridge started (initializing in background...)")
+    
+    def wait_until_ready(self, timeout: float = 10.0) -> bool:
+        """Wait for observer bridge to finish initialization.
+        
+        Args:
+            timeout: Maximum seconds to wait (default: 10.0)
+        
+        Returns:
+            True if ready within timeout, False if timeout
+        """
+        logger.debug(f"Waiting for observer bridge to be ready (timeout={timeout}s)...")
+        ready = self.ready.wait(timeout=timeout)
+        if ready:
+            logger.info("Observer bridge ready")
+        else:
+            logger.warning(f"Observer bridge not ready after {timeout}s timeout")
+        return ready
     
     def stop(self):
         """Stop background observer thread."""
@@ -142,7 +161,7 @@ class ObserverBridge:
             pass
         
         if self.has_person():
-            logger.debug(f"get_person_detection: Returning detection (bbox={self.current_detection.bbox}, has_mask={self.current_detection.has_mask()})")
+            logger.debug(f"get_person_detection: Returning detection (bbox={self.current_detection.bbox_xywh}, has_mask={self.current_detection.has_mask()})")
             return self.current_detection
         logger.debug("get_person_detection: No person available")
         return None
@@ -185,6 +204,10 @@ class ObserverBridge:
                 device=cfg.yolo.device
             )
             logger.info(f"YOLO detector initialized: {cfg.yolo.model_path}")
+            
+            # Signal that initialization is complete
+            self.ready.set()
+            logger.info("Observer bridge initialization complete, entering detection loop")
             
             surround_period = 1.0 / self.config.surround_fps
             ptz_period = 1.0 / self.config.ptz_fps
@@ -263,7 +286,7 @@ class ObserverBridge:
                         )
                     
                     # Send PTZ command
-                    ptz_control.set_ptz_position(self.ptz_client, ptz_pan, ptz_tilt)
+                    ptz_control.set_ptz(self.ptz_client, cfg.ptz.name, ptz_pan, ptz_tilt)
                     ptz_tracking_person = True
                     logger.debug(f"PTZ commanded: pan={ptz_pan:.1f}°, tilt={ptz_tilt:.1f}°")
                     
@@ -286,11 +309,12 @@ class ObserverBridge:
                     
                     # 7. Create PersonDetection with all info
                     person_det = PersonDetection(
-                        bbox=best_detection.bbox_xywh,
+                        bbox_xywh=best_detection.bbox_xywh,
                         mask=best_detection.mask,
                         confidence=best_detection.conf,
                         distance_m=best_distance,
                         depth_source=best_camera,
+                        source_camera=ptz_source,
                         frame=ptz_frame,
                         depth_frame=ptz_depth,
                         tracked_by_ptz=True,

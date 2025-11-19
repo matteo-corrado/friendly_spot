@@ -2,7 +2,7 @@
 /detection
 /images
 /output_withdepth
-
+/test_output
 #yolo models
 *.pt
 

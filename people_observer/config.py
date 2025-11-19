@@ -65,11 +65,26 @@ ROTATION_ANGLE: Dict[str, float] = {
 }
 
 # PTZ/compositor/stream settings
-# Valid PTZ names: 'mech' (mechanical), 'digi' (digital), 'full_digi', 'overlay_digi', 'full_pano', 'overlay_pano', 'sv600'
-# Valid compositor screens: 'mech_full', 'digi_full', 'mech', 'digi', 'mech_overlay', etc.
-PTZ_NAME = "mech"  # Mechanical PTZ control
-COMPOSITOR_SCREEN = "mech_full"  # Full mechanical PTZ view
-TARGET_BITRATE = 2_000_000
+# Spot CAM uses separate 'spot-cam-image' service (not standard 'image' service)
+# Discovery from test_list_image_sources.py showed available sources:
+# - Service: 'spot-cam-image'
+#   Sources: 'ptz' (1920x1080), 'pano' (360°), 'c0'-'c4' (ring cameras), 
+#            'stream' (compositor), 'projected-ring', 'tiled-ring'
+
+# Image service names
+SPOT_CAM_IMAGE_SERVICE = 'spot-cam-image'  # Spot CAM cameras (PTZ, 360, ring)
+SURROUND_IMAGE_SERVICE = 'image'            # Standard fisheye cameras
+
+# PTZ source configuration
+PTZ_SOURCE_NAME = 'ptz'                     # PTZ camera source in spot-cam-image service
+PTZ_NAME = "mech"                           # PTZ device name for control ('mech' or 'digi')
+COMPOSITOR_SCREEN = "mech_full"             # Full mechanical PTZ view in compositor
+TARGET_BITRATE = 2000000                    # Target bitrate for streaming
+
+# Additional Spot CAM sources (for reference)
+PANO_SOURCE_NAME = 'pano'                   # 360-degree panoramic camera
+STREAM_SOURCE_NAME = 'stream'               # Compositor stream (multi-camera view)
+RING_CAMERA_SOURCES = ['c0', 'c1', 'c2', 'c3', 'c4']  # Individual ring cameras
 
 # PTZ hardware mounting offset (degrees)
 # The mechanical PTZ is physically mounted with a 35° offset to the right of the body frame.
@@ -93,7 +108,9 @@ DEFAULT_YOLO_MODELNAME = "yolo11m-seg.pt"  # medium model for accuracy
 # Models should be in people_observer/ directory (same as this config file)
 YOLO_MODELS_DIR = Path(__file__).parent
 DEFAULT_YOLO_MODEL = str(YOLO_MODELS_DIR / DEFAULT_YOLO_MODELNAME)  # Uses defined path
-YOLO_IMG_SIZE = 640
+YOLO_IMG_SIZE = 640  # YOLO input size (images auto-resized to this for inference)
+                      # Note: PTZ camera is 1920x1080, surround cameras are 640x480
+                      # YOLO automatically handles resizing internally
 YOLO_DEVICE = "cuda"
 YOLO_HALF = True if YOLO_DEVICE == "cuda" else False  # Use half-precision FP16 for inference on CUDA
 YOLO_VERBOSE = False  # Set to True for detailed model inference logging
@@ -153,9 +170,16 @@ class ConnectionConfig:
 @dataclass
 class PTZConfig:
     """PTZ camera control settings."""
-    name: str = PTZ_NAME
-    compositor_screen: str = COMPOSITOR_SCREEN  # Use the module constant
-    target_bitrate: int = TARGET_BITRATE
+    # Service and source configuration
+    image_service: str = SPOT_CAM_IMAGE_SERVICE  # Image service name ('spot-cam-image')
+    source_name: str = PTZ_SOURCE_NAME           # Camera source name ('ptz')
+    
+    # PTZ control settings
+    name: str = PTZ_NAME                         # PTZ device name ('mech' or 'digi')
+    compositor_screen: str = COMPOSITOR_SCREEN   # Compositor screen name
+    target_bitrate: int = TARGET_BITRATE         # Streaming bitrate
+    
+    # Movement control
     pan_deadband_deg: float = PAN_DEADBAND_DEG
     tilt_deadband_deg: float = TILT_DEADBAND_DEG
     max_deg_per_step: float = MAX_DEG_PER_STEP

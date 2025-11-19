@@ -37,6 +37,10 @@ class PerceptionInput:
         emotion_label: Emotion string emitted by DeepFace (e.g., "happy").
         pose_label: Pose/action classification (e.g., "running", "standing").
         gesture_label: Hand gesture label (e.g., "thumbs_up", "open_hand").
+        face_bbox: Face bounding box as (x, y, w, h) tuple, or None if no face detected.
+        pose_landmarks: Normalized pose landmarks as numpy array of shape (N, 3), or None.
+        emotion_scores: Full emotion score dict from DeepFace, or None.
+        frame: The actual frame that was analyzed (BGR image), for visualization alignment.
     """
 
     current_action: str = "idle"
@@ -45,6 +49,10 @@ class PerceptionInput:
     emotion_label: str = "neutral"
     pose_label: str = "standing"
     gesture_label: str = "none"
+    face_bbox: Optional[tuple] = None
+    pose_landmarks: Optional[object] = None  # numpy array
+    emotion_scores: Optional[dict] = None
+    frame: Optional[object] = None  # numpy array
 
 
 @dataclass

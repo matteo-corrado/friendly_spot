@@ -232,11 +232,22 @@ def ensure_available_sources(image_client: ImageClient, desired: List[str]) -> L
     return usable
 
 
-def decode_image(resp) -> np.ndarray:
+def decode_image(resp, auto_rotate: bool = False) -> np.ndarray:
     """Decode an ImageResponse to a BGR ndarray.
 
     Supports JPEG and RAW (grayscale) images. Returns a 3-channel BGR image.
+    
+    Args:
+        resp: ImageResponse from get_image
+        auto_rotate: If True, rotate images to upright orientation using hardcoded angles
+                     DEFAULT FALSE to preserve pixel coordinates for geometry calculations
+    
+    Note: Rotation is disabled by default to keep pixel coordinates aligned with camera intrinsics.
+          If you need rotated images for visualization, rotate separately after geometry calculations.
     """
+    from scipy import ndimage
+    from .config import ROTATION_ANGLE
+    
     fmt = resp.shot.image.format
     data = resp.shot.image.data
     if fmt == image_pb2.Image.FORMAT_JPEG:
@@ -248,21 +259,36 @@ def decode_image(resp) -> np.ndarray:
         img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
     else:
         img = None
+    
+    # Apply rotation using scipy (same as SDK get_image example)
+    if img is not None and auto_rotate:
+        rotation_angle = ROTATION_ANGLE.get(resp.source.name, 0)
+        if rotation_angle != 0:
+            img = ndimage.rotate(img, rotation_angle)
+    
     return img
 
 
-def _decode_depth_image(resp) -> Optional[np.ndarray]:
+
+
+
+def _decode_depth_image(resp, auto_rotate: bool = True) -> Optional[np.ndarray]:
     """Decode depth ImageResponse to float32 ndarray in meters.
     
     Uses SDK pattern: depth_scale from ImageSource converts uint16 pixels to meters.
     Invalid pixels (0 and 65535) are marked as NaN.
+    Applies same rotation as visual images so pixel coordinates align.
     
     Args:
         resp: ImageResponse with depth data
+        auto_rotate: If True, rotate depth to match visual image orientation
         
     Returns:
         np.ndarray of shape (rows, cols) with depth in meters, or None if not a depth image
     """
+    from scipy import ndimage
+    from .config import ROTATION_ANGLE
+    
     # Check pixel format
     if resp.shot.image.pixel_format != image_pb2.Image.PIXEL_FORMAT_DEPTH_U16:
         return None
@@ -282,6 +308,19 @@ def _decode_depth_image(resp) -> Optional[np.ndarray]:
     
     # Mask out invalid depth values (0 and 65535 are invalid per SDK)
     depth_m[(depth_u16 == 0) | (depth_u16 == 65535)] = np.nan
+    
+    # Apply same rotation as visual image so pixel coordinates align
+    # Extract visual source name from depth source name for rotation lookup
+    if auto_rotate:
+        source_name = resp.source.name
+        # depth sources end with '_depth_in_visual_frame', strip to get visual name
+        visual_name = source_name.replace('_depth_in_visual_frame', '_fisheye_image')
+        if visual_name not in ROTATION_ANGLE:
+            visual_name = source_name.replace('_depth_in_visual_frame', '_image')
+        
+        rotation_angle = ROTATION_ANGLE.get(visual_name, 0)
+        if rotation_angle != 0:
+            depth_m = ndimage.rotate(depth_m, rotation_angle, order=0, cval=np.nan)
     
     return depth_m
 
@@ -329,7 +368,7 @@ def get_frames(image_client: ImageClient, sources: List[str], include_depth: boo
         
         # Check if this is a depth source
         if '_depth_in_visual_frame' in source_name:
-            depth_img = _decode_depth_image(r)
+            depth_img = _decode_depth_image(r, auto_rotate=True)
             if depth_img is not None:
                 # Map depth back to the visual source name for easy lookup
                 visual_name = source_name.replace('_depth_in_visual_frame', '_fisheye_image')

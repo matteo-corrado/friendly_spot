@@ -1,8 +1,10 @@
 # Authors: Thor Lemke, Sally Hyun Hahm, Matteo Corrado
-# Last Update: 11/18/2025
+# Last Update: 11/19/2025
 # Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li
 # Purpose: Abstract video source layer supporting webcam, Spot PTZ via ImageClient, and WebRTC streaming.
 # Provides unified interface for PerceptionPipeline to consume frames from different sources.
+# Key Discovery: Spot CAM uses separate 'spot-cam-image' service (not standard 'image' service).
+# PTZ camera accessed via service='spot-cam-image', source='ptz'. Configure via global variables.
 # Acknowledgements: Boston Dynamics Spot SDK for ImageClient and WebRTC patterns,
 # people_observer.ptz_stream for WebRTC integration
 
@@ -12,6 +14,14 @@ Supports three video sources:
 1. WebcamSource: Local USB/built-in camera (development/testing)
 2. SpotPTZImageClient: Spot PTZ camera via synchronous ImageClient (RECOMMENDED)
 3. SpotPTZWebRTC: Spot PTZ camera via asynchronous WebRTC stream
+
+Spot CAM PTZ Camera Notes:
+===========================
+- Resolution: 1920x1080 (Full HD) - 6.25x more pixels than surround cameras (640x480)
+- Network impact: Larger JPEG transfers (~200-500KB vs 50-100KB for fisheye)
+- Processing: YOLO auto-resizes to 640x640 for inference (no manual resize needed)
+- Performance: Expect ~20% slower frame rate vs surround cameras on same network
+- Recommendation: Use quality=75 (default) or lower for better throughput
 
 ImageClient vs WebRTC Comparison:
 ==================================
@@ -47,6 +57,43 @@ from abc import ABC, abstractmethod
 
 import cv2
 import numpy as np
+
+# ==============================================================================
+# SPOT CAM CAMERA CONFIGURATION
+# ==============================================================================
+# Customize these variables to select different Spot CAM cameras
+# Run test_list_image_sources.py to see all available sources on your robot
+
+# Spot CAM image service name (separate from standard 'image' service)
+SPOT_CAM_IMAGE_SERVICE = 'spot-cam-image'
+
+# PTZ camera source (mechanical pan/tilt/zoom camera)
+# Resolution: 1920x1080 (Full HD) - significantly higher than surround cameras (640x480)
+SPOT_CAM_PTZ_SOURCE = 'ptz'
+
+# 360-degree panoramic camera source
+SPOT_CAM_360_SOURCE = 'pano'
+
+# Individual ring cameras (if needed)
+SPOT_CAM_RING_CAMERAS = ['c0', 'c1', 'c2', 'c3', 'c4']
+
+# Compositor stream (composite view of multiple cameras)
+SPOT_CAM_STREAM_SOURCE = 'stream'
+
+# ==============================================================================
+# SURROUND CAMERA CONFIGURATION
+# ==============================================================================
+# Standard Spot fisheye cameras (from 'image' service)
+SURROUND_IMAGE_SERVICE = 'image'
+SURROUND_CAMERA_SOURCES = [
+    'frontleft_fisheye_image',
+    'frontright_fisheye_image',
+    'left_fisheye_image',
+    'right_fisheye_image',
+    'back_fisheye_image'
+]
+
+# ==============================================================================
 
 logger = logging.getLogger(__name__)
 
@@ -112,44 +159,80 @@ class WebcamSource(VideoSource):
 
 
 class SpotPTZImageClient(VideoSource):
-    """Spot PTZ camera via synchronous ImageClient (RECOMMENDED).
+    """Spot PTZ camera via synchronous ImageClient (Spot CAM image service).
     
-    Fetches JPEG frames directly from robot's PTZ camera using ImageClient.
-    Provides best performance for local perception pipeline:
+    Fetches JPEG frames from Spot CAM PTZ camera using the 'spot-cam-image' service.
+    Uses global configuration variables (SPOT_CAM_IMAGE_SERVICE, SPOT_CAM_PTZ_SOURCE)
+    for easy customization. Provides best performance for local perception pipeline:
     - 20-30 fps typical frame rate on good network
     - Low latency: ~50-100ms per frame fetch
     - Synchronous API matches pipeline structure
     - Includes camera intrinsics for advanced features
     
+    Configuration:
+        Modify global variables at top of file:
+        - SPOT_CAM_IMAGE_SERVICE: Image service name (default: 'spot-cam-image')
+        - SPOT_CAM_PTZ_SOURCE: Camera source name (default: 'ptz')
+        - SPOT_CAM_360_SOURCE: 360 camera (default: 'pano')
+    
     Args:
-        robot: Authenticated bosdyn.client.Robot instance
-        source_name: Camera source name (default: "ptz" for mech PTZ)
+        robot: Authenticated bosdyn.client.Robot instance with Spot CAM registered
+        image_service: Image service name (default: uses SPOT_CAM_IMAGE_SERVICE)
+        source_name: Camera source name (default: uses SPOT_CAM_PTZ_SOURCE)
         quality: JPEG quality percentage (default: 75)
         max_retries: Max retry attempts for failed frame fetches (default: 3)
+        include_depth: Also fetch depth image if available (default: False)
+                       Note: Spot CAM PTZ typically does not have depth
+    
+    Raises:
+        ValueError: If image_service or source_name not found on robot
     """
     
-    def __init__(self, robot, source_name: str = "ptz", quality: int = 75, max_retries: int = 3, include_depth: bool = False):
+    def __init__(self, 
+                 robot, 
+                 image_service: Optional[str] = None,
+                 source_name: Optional[str] = None, 
+                 quality: int = 75, 
+                 max_retries: int = 3, 
+                 include_depth: bool = False):
         from bosdyn.client.image import ImageClient, build_image_request
         from bosdyn.api import image_pb2
         
         self.robot = robot
-        self.source_name = source_name
         self.quality = quality
         self.max_retries = max_retries
         self.include_depth = include_depth
         
-        # Initialize ImageClient
-        self.image_client = robot.ensure_client(ImageClient.default_service_name)
+        # Use global config defaults if not specified
+        if image_service is None:
+            image_service = SPOT_CAM_IMAGE_SERVICE
+        if source_name is None:
+            source_name = SPOT_CAM_PTZ_SOURCE
         
-        # Validate source exists
+        self.image_service_name = image_service
+        self.source_name = source_name
+        
+        # Initialize ImageClient for specified service
+        # For Spot CAM: use 'spot-cam-image' service instead of default 'image' service
+        logger.info(f"Connecting to image service: {image_service}")
+        self.image_client = robot.ensure_client(image_service)
+        
+        # Validate source exists in this service
         available_sources = {s.name for s in self.image_client.list_image_sources()}
+        logger.debug(f"Available sources in '{image_service}': {sorted(available_sources)}")
+        
         if source_name not in available_sources:
             raise ValueError(
-                f"Camera source '{source_name}' not found. "
-                f"Available sources: {sorted(available_sources)}"
+                f"Camera source '{source_name}' not found in service '{image_service}'.\n"
+                f"Available sources: {sorted(available_sources)}\n\n"
+                "To see all services and sources, run:\n"
+                "  python test_list_image_sources.py --hostname ROBOT_IP\n\n"
+                "To use a different source, modify global variables at top of video_sources.py:\n"
+                f"  SPOT_CAM_IMAGE_SERVICE = '{image_service}'\n"
+                f"  SPOT_CAM_PTZ_SOURCE = 'your_source_name'"
             )
         
-        logger.info(f"Initialized Spot PTZ ImageClient for source '{source_name}' (depth={include_depth})")
+        logger.info(f"Initialized Spot PTZ ImageClient: service='{image_service}', source='{source_name}', depth={include_depth}")
         
         # Pre-build image requests for efficiency
         self.image_request = build_image_request(

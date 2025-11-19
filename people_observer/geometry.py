@@ -168,18 +168,14 @@ def pixel_to_ptz_angles_transform(
     logger.info(f"[TRANSFORM] Camera={camera_frame}, Model={model}, Original pixel=({pixel_x:.0f}, {pixel_y:.0f})")
     logger.info(f"[TRANSFORM] Image timestamp: {shot.acquisition_time.seconds}.{shot.acquisition_time.nanos//1000000:03d}")
     
-    # Step 1: Apply physical camera rotation correction
-    # CRITICAL: Spot's fisheye cameras are physically rotated. Without this correction,
-    # the unprojected rays will point in wrong directions, causing PTZ inaccuracy.
-    rotated_x, rotated_y = rotate_pixel_for_camera(
-        pixel_x, pixel_y, img_width, img_height, camera_frame
-    )
-    logger.info(f"[TRANSFORM] Rotation-corrected pixel=({rotated_x:.0f}, {rotated_y:.0f})")
+    # Step 1: Images are now kept in original camera frame (no scipy rotation)
+    # Pixel coordinates directly correspond to camera intrinsics
+    logger.info(f"[TRANSFORM] Working in original camera frame (images not rotated)")
     
     # Step 2: Unproject pixel to 3D ray in camera frame
     try:
         ray_cam_x, ray_cam_y, ray_cam_z = cameras.pixel_to_camera_ray(
-            rotated_x, rotated_y, intrinsics
+            pixel_x, pixel_y, intrinsics
         )
         logger.info(f"[TRANSFORM] Camera-frame ray=[{ray_cam_x:.3f}, {ray_cam_y:.3f}, {ray_cam_z:.3f}]")
     except Exception as e:
@@ -238,12 +234,16 @@ def pixel_to_ptz_angles_transform(
     bearing_rad = math_helpers.recenter_angle_mod(bearing_rad, 0.0)  # [-π, π]
     bearing_deg = np.rad2deg(bearing_rad)  # [-180, 180]
     
-    # Tilt: vertical angle from horizontal plane
+    # Tilt: Use the ray direction directly - it already encodes where in the image the person appears
+    # The 3D ray through the pixel naturally accounts for:
+    # - Pixel Y position (higher/lower in image)
+    # - Camera intrinsics (fisheye distortion, FOV)
+    # - Camera physical rotation (already corrected in pixel rotation step)
     horizontal_dist = np.sqrt(ray_body_vec.x**2 + ray_body_vec.y**2)
     tilt_rad = np.arctan2(ray_body_vec.z, horizontal_dist)
     tilt_deg = np.rad2deg(tilt_rad)
     
-    logger.info(f"[TRANSFORM] Body-frame angles: bearing={bearing_deg:.2f}°, tilt={tilt_deg:.2f}°")
+    logger.info(f"[TRANSFORM] Body-frame angles: bearing={bearing_deg:.2f}°, tilt={tilt_deg:.2f}° (from ray through pixel)")
     
     # Step 5: Convert from body frame to PTZ coordinates
     # Body bearing: 0=forward, +90=left, -90=right (math convention, CCW positive)
@@ -324,7 +324,18 @@ def pixel_to_ptz_angles_simple(
     # Apply PTZ hardware mounting offset (same as transform mode)
     ptz_pan_deg = (ptz_pan_deg - PTZ_OFFSET_DEG) % 360
     
-    ptz_tilt_deg = default_tilt_deg
+    # Estimate tilt from pixel Y position (simple approximation)
+    # Assume vertical FOV ~ HFOV * (height/width) for fisheye
+    vfov_deg = hfov_deg * (img_height / img_width)
+    norm_y = (pixel_y / img_height) - 0.5  # [-0.5, 0.5], 0 = center
+    vfov_rad = np.deg2rad(vfov_deg)
+    tilt_from_center_deg = np.rad2deg(norm_y * vfov_rad)
+    
+    # Apply default tilt as baseline, adjust based on pixel position
+    # Positive norm_y (lower in image) → look down more (negative tilt)
+    ptz_tilt_deg = default_tilt_deg - tilt_from_center_deg
+    
+    logger.info(f"Tilt estimation: pixel_y={pixel_y:.0f}, norm_y={norm_y:.3f}, tilt_offset={tilt_from_center_deg:.2f}°, final_tilt={ptz_tilt_deg:.2f}°")
     
     logger.info(f"PTZ angles (simple): pan={ptz_pan_deg:.2f}°, tilt={ptz_tilt_deg:.2f}°")
     

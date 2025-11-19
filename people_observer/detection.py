@@ -22,7 +22,9 @@ from .config import (
     YOLO_IMG_SIZE,
     MIN_CONFIDENCE,
     YOLO_IOU_THRESHOLD,
-    YOLO_DEVICE
+    YOLO_DEVICE,
+    YOLO_HALF,
+    YOLO_VERBOSE
 )
 
 logger = logging.getLogger(__name__)
@@ -44,7 +46,19 @@ class Detection:
 
 class YoloDetector:
     def __init__(self, model_path: str = DEFAULT_YOLO_MODEL, imgsz: int = YOLO_IMG_SIZE, 
-                 conf: float = MIN_CONFIDENCE, iou: float = YOLO_IOU_THRESHOLD, device: str = YOLO_DEVICE):
+                 conf: float = MIN_CONFIDENCE, iou: float = YOLO_IOU_THRESHOLD, 
+                 device: str = YOLO_DEVICE, half: bool = YOLO_HALF, verbose: bool = YOLO_VERBOSE):
+        """Initialize YOLO detector.
+        
+        Args:
+            model_path: Path to YOLO model weights file
+            imgsz: Input image size (must be multiple of 32)
+            conf: Confidence threshold for detections [0.0, 1.0]
+            iou: IOU threshold for NMS [0.0, 1.0]
+            device: 'cuda' or 'cpu' for inference device
+            half: Use FP16 half-precision (only effective on CUDA)
+            verbose: Enable verbose YOLO logging
+        """
         # Verify model file exists
         import os
         if not os.path.exists(model_path):
@@ -59,15 +73,22 @@ class YoloDetector:
         self.imgsz = imgsz
         self.conf = conf
         self.iou = iou
+        self.verbose = verbose
         
         # Determine device (GPU if available, fallback to CPU)
         if device == "cuda" and torch.cuda.is_available():
             self.device = "cuda"
-            logger.info(f"YOLO using GPU: {torch.cuda.get_device_name(0)}")
+            # Half precision only works on CUDA
+            self.half = half
+            logger.info(f"YOLO using GPU: {torch.cuda.get_device_name(0)} (FP16={self.half})")
         else:
             self.device = "cpu"
+            # Force half=False on CPU (not supported)
+            self.half = False
             if device == "cuda":
                 logger.warning("CUDA requested but not available, falling back to CPU")
+            if half:
+                logger.warning("FP16 half-precision not supported on CPU, using FP32")
             logger.info("YOLO using CPU")
 
     def predict_batch(self, bgr_list: List[np.ndarray]) -> List[List[Detection]]:
@@ -80,8 +101,8 @@ class YoloDetector:
         results = self.model.predict(
             bgr_list, imgsz=self.imgsz, conf=self.conf, iou=self.iou,
             classes=[PERSON_CLASS_ID], device=self.device, 
-            half=(self.device == "cuda"),  # FP16 only on GPU
-            verbose=False
+            half=self.half,  # FP16 only on GPU
+            verbose=self.verbose
         )
         for r, img in zip(results, bgr_list):
             dets: List[Detection] = []

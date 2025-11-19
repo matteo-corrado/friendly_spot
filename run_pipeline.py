@@ -20,7 +20,7 @@ def load_module_from_path(name, path):
     loader.exec_module(module)
     return module
 
-BASE = os.path.dirname(__file__)
+BASE = os.path.dirname(os.path.abspath(__file__))
 pose_mod = load_module_from_path(
     "streamlined_pose",
     os.path.join(BASE, "Facial Recognition", "streamlinedRuleBasedEstimation.py"),
@@ -29,40 +29,22 @@ face_mod = load_module_from_path(
     "streamlined_face",
     os.path.join(BASE, "Facial Recognition", "streamlinedCombinedMemoryAndEmotion.py"),
 )
+gesture_mod = load_module_from_path(
+    "streamlined_gesture",
+    os.path.join(BASE, "Facial Recognition", "streamlinedGestureExtraction.py"),
+)
 
 from behavior_planner import PerceptionInput  # [`PerceptionInput`](behavior_planner.py)
 
 PoseAnalyzer = pose_mod.PoseAnalyzer  # [`PoseAnalyzer`](Facial Recognition/streamlinedRuleBasedEstimation.py)
 FaceRecognizer = face_mod.FaceRecognizer  # [`FaceRecognizer`](Facial Recognition/streamlinedCombinedMemoryAndEmotion.py)
+GestureRecognizer = gesture_mod.GestureRecognizer  # [`GestureRecognizer`](Facial Recognition/streamlinedGestureDetection.py)
 
 # Reuse mediapipe from pose_mod for efficiency (already imported there)
 mp = getattr(pose_mod, "mp", None)
 if mp is None:
     import mediapipe as mp
 mp_hands = mp.solutions.hands
-
-def detect_gesture_from_frame(frame, hands_detector):
-    """
-    Minimal hand/gesture detection:
-      - returns 'none' if no hand
-      - otherwise returns 'open_hand' | 'closed_fist' | 'unknown' (very coarse)
-    This is a simple placeholder; replace with your gesture task model if available.
-    """
-    img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    res = hands_detector.process(img_rgb)
-    if not res.multi_hand_landmarks:
-        return "none"
-    # crude heuristic: distance between index-tip and thumb-tip
-    lm = res.multi_hand_landmarks[0].landmark
-    idx = np.array([lm[8].x, lm[8].y])
-    thumb = np.array([lm[4].x, lm[4].y])
-    dist = np.linalg.norm(idx - thumb)
-    # thresholds are heuristic (landmarks normalized)
-    if dist > 0.06:
-        return "open_hand"
-    if dist < 0.03:
-        return "closed_fist"
-    return "unknown"
 
 def estimate_distance_m(landmarks, frame_height, assumed_person_height_m=1.7):
     """
@@ -98,7 +80,7 @@ class PerceptionPipeline:
         # This is more efficient than limiting threads
         self._configure_tensorflow()
         
-        # Pre-build DeepFace models (CRITICAL: avoids loading on every call)
+        # Pre-build DeepFace models
         self._prebuild_deepface_models()
         
         self.pose = PoseAnalyzer()
@@ -112,6 +94,16 @@ class PerceptionPipeline:
             # ignore training failures for now
             pass
         self.hands = mp_hands.Hands(static_image_mode=False, max_num_hands=2, min_detection_confidence=0.4)
+        
+        # Initialize gesture recognizer
+        gesture_model_path = os.path.abspath(os.path.join(BASE, "Facial Recognition", "gesture_recognizer.task"))
+        logger.info(f"Gesture model path: {gesture_model_path}")
+        logger.info(f"Model file exists: {os.path.exists(gesture_model_path)}")
+        try:
+            self.gesture = GestureRecognizer(model_path=gesture_model_path)
+        except Exception as e:
+            logger.warning(f"Gesture recognizer initialization failed: {e} - gestures will be 'none'")
+            self.gesture = None
     
     def _configure_tensorflow(self):
         """Configure TensorFlow for optimal DeepFace performance.
@@ -141,8 +133,6 @@ class PerceptionPipeline:
     def _prebuild_deepface_models(self):
         """Pre-build DeepFace models to avoid loading overhead on every call.
         
-        CRITICAL OPTIMIZATION: Loading models on first call takes 2-5 seconds.
-        Pre-building once at initialization improves runtime performance 10-50x.
         
         Note: DeepFace emotion analysis doesn't use build_model() - the emotion
         model is loaded automatically on first DeepFace.analyze() call. This method
@@ -187,15 +177,22 @@ class PerceptionPipeline:
         landmarks, results = self.pose.extract_landmarks(frame)
         if landmarks is not None:
             pose_label = self.pose.detect_action(landmarks)
-            current_action = pose_label  # use same as pose for now
-            distance_m = estimate_distance_m(landmarks, frame_h)
+            current_action = pose_label  # TODO: implement spot's current action
+            distance_m = estimate_distance_m(landmarks, frame_h) # TODO: use spot's distance estimator from robot using depth if available
         else:
             pose_label = "unknown"
             current_action = "unknown"
             distance_m = None
 
         # Gesture
-        gesture_label = detect_gesture_from_frame(frame, self.hands)
+        if self.gesture is not None:
+            try:
+                gesture_label = self.gesture.recognize_gestures(frame)
+            except Exception as e:
+                logger.debug(f"Gesture recognition failed: {e}")
+                gesture_label = "none"
+        else:
+            gesture_label = "none"
 
         # Face + Emotion (reuse cv2 from face_mod for efficiency)
         _cv2 = getattr(face_mod, "cv2", cv2)
@@ -261,6 +258,8 @@ class PerceptionPipeline:
             self.hands.close()
         if hasattr(self, 'pose') and self.pose:
             self.pose.close()
+        if hasattr(self, 'gesture') and self.gesture:
+            self.gesture.close()
         cv2.destroyAllWindows()
     
     def __enter__(self):

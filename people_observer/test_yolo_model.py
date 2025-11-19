@@ -8,11 +8,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # YOLOv8 model variants to test
 # Note: config.DEFAULT_YOLO_MODEL sets the model used by the main app
 YOLO_MODELS = [
-    ("yolov8n.pt", "Nano - fastest, least accurate"),
-    ("yolov8s.pt", "Small"),
-    ("yolov8m.pt", "Medium"),
-    ("yolov8l.pt", "Large"),
-    ("yolov8x.pt", "Extra Large - slowest, most accurate"),
+    ("yolov11n.pt", "Nano - fastest, least accurate"),
+    ("yolov11s.pt", "Small"),
+    ("yolov11m.pt", "Medium"),
+    ("yolov11l.pt", "Large"),
+    ("yolov11x.pt", "Extra Large - slowest, most accurate"),
 ]
 
 def check_model(model_name: str, description: str):

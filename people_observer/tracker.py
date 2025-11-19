@@ -21,7 +21,12 @@ from typing import List, Tuple, Dict, Optional
 import cv2
 import numpy as np
 
-from .config import RuntimeConfig
+from .config import (
+    SURROUND_SOURCES,
+    ROTATION_ANGLE,
+    MIN_AREA_PX,
+    RuntimeConfig,
+)
 from . import cameras
 from . import geometry
 from .detection import YoloDetector, Detection
@@ -117,7 +122,9 @@ def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig, shutdown_reque
         imgsz=cfg.yolo.img_size,
         conf=cfg.yolo.min_confidence,
         iou=cfg.yolo.iou_threshold,
-        device=cfg.yolo.device
+        device=cfg.yolo.device,
+        half=cfg.yolo.half,
+        verbose=cfg.yolo.verbose
     )
     period = 1.0 / max(1, cfg.loop_hz)
     

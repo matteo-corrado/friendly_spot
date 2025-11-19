@@ -87,27 +87,37 @@ class ComfortHyperParameters:
     )
     gesture_weights: Dict[str, float] = field(
         default_factory=lambda: {
-            "thumbs_up": 0.1,
-            "open_hand": 0.05,
-            "pointing_up": -0.05,
-            "closed_fist": -0.18,
-            "victory": 0.06,
-            "none": 0.0,
-            "unknown": 0.0,
-            "default": 0.0,
+            # Positive/welcoming gestures
+            "thumb_up": 0.1,          # MediaPipe: Thumb_Up
+            "thumbs_up": 0.1,         # Alias for compatibility
+            "iloveyou": 0.12,         # MediaPipe: ILoveYou (strong positive)
+            "victory": 0.06,          # MediaPipe: Victory (peace sign)
+            "open_palm": 0.05,        # MediaPipe: Open_Palm (neutral/welcoming)
+            # Negative/cautious gestures
+            "thumb_down": -0.2,       # MediaPipe: Thumb_Down (negative feedback)
+            "thumbs_down": -0.2,      # Alias for compatibility
+            "closed_fist": -0.18,     # MediaPipe: Closed_Fist (aggressive)
+            "pointing_up": -0.05,     # MediaPipe: Pointing_Up (directive/commanding)
+            # Neutral states
+            "none": 0.0,              # MediaPipe: None (hands visible, no gesture)
+            "unknown": 0.0,           # MediaPipe: Unknown (unrecognized gesture)
+            "default": 0.0,           # Fallback for unlabeled gestures
         }
     )
     emotion_weights: Dict[str, float] = field(
         default_factory=lambda: {
-            "happy": 0.18,
-            "surprise": 0.06,
-            "calm": 0.08,
-            "neutral": 0.0,
-            "sad": -0.15,
-            "angry": -0.3,
-            "fear": -0.27,
-            "disgust": -0.22,
-            "default": 0.0,
+            # Positive emotions (DeepFace recognized)
+            "happy": 0.18,           # DeepFace: happy - strong positive signal
+            "surprise": 0.06,        # DeepFace: surprise - mild positive (neutral-to-positive)
+            # Neutral
+            "neutral": 0.0,          # DeepFace: neutral - baseline
+            # Negative emotions (DeepFace recognized)
+            "sad": -0.15,            # DeepFace: sad - moderate negative
+            "disgust": -0.22,        # DeepFace: disgust - strong negative
+            "fear": -0.27,           # DeepFace: fear - very strong negative
+            "angry": -0.3,           # DeepFace: angry - strongest negative
+            # Fallback
+            "default": 0.0,          # Unknown emotions default to neutral
         }
     )
     # Behavior thresholds are ordered from highest comfort to lowest.

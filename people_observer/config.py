@@ -69,12 +69,6 @@ TARGET_BITRATE = 2_000_000
 # To point forward, we must command pan=325° (360° - 35°).
 PTZ_OFFSET_DEG = 35.0
 
-# Detection thresholds
-PERSON_CLASS_ID = 0
-MIN_CONFIDENCE = 0.40
-MIN_AREA_PX = 600
-YOLO_IOU_THRESHOLD = 0.5  # IOU threshold for YOLO NMS
-
 # Loop pacing
 LOOP_HZ = 7
 
@@ -87,12 +81,20 @@ DEFAULT_ZOOM = 1.0  # Zoom range [1.0, 30.0], 1.0 = no zoom
 TRANSFORM_MODE = "transform"  # or "bearing"
 
 # YOLO model settings
-DEFAULT_YOLO_MODEL = "yolov8x.pt"  # extra large model for accuracy
+DEFAULT_YOLO_MODELNAME = "yolov8x.pt"  # extra large model for accuracy
 # Models should be in people_observer/ directory (same as this config file)
 YOLO_MODELS_DIR = Path(__file__).parent
-DEFAULT_YOLO_MODEL = str(YOLO_MODELS_DIR / DEFAULT_YOLO_MODEL)  # Uses defined path
+DEFAULT_YOLO_MODEL = str(YOLO_MODELS_DIR / DEFAULT_YOLO_MODELNAME)  # Uses defined path
 YOLO_IMG_SIZE = 640
-YOLO_DEVICE = "cuda"  # or "cuda" if GPU available
+YOLO_DEVICE = "cuda"
+YOLO_HALF = True if YOLO_DEVICE == "cuda" else False  # Use half-precision FP16 for inference on CUDA
+YOLO_VERBOSE = False  # Set to True for detailed model inference logging
+
+# Detection thresholds
+PERSON_CLASS_ID = 0
+MIN_CONFIDENCE = 0.40
+MIN_AREA_PX = 600
+YOLO_IOU_THRESHOLD = 0.5  # IOU threshold for YOLO NMS
 
 # Connection and retry settings
 ROBOT_CONNECT_TIMEOUT_SEC = 10.0
@@ -114,6 +116,8 @@ class YOLOConfig:
     person_class_id: int = PERSON_CLASS_ID
     min_confidence: float = MIN_CONFIDENCE
     min_area_px: int = MIN_AREA_PX
+    half: bool = YOLO_HALF
+    verbose: bool = YOLO_VERBOSE
     
     def __post_init__(self):
         if self.min_confidence < 0.0 or self.min_confidence > 1.0:

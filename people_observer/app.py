@@ -56,8 +56,7 @@ def main(argv=None):
                     help="Show live detection visualization with OpenCV")
     ap.add_argument("--save-images", type=str, metavar="DIR",
                     help="Save annotated frames to specified directory")
-    ap.add_argument("--verbose", action="store_true",
-                    help="Enable verbose debug logging")
+    # Note: --verbose is already added by add_base_arguments()
     args = ap.parse_args(argv)
 
     # Configure logging level based on verbose flag

@@ -41,22 +41,55 @@ def pick_largest(dets: List[Detection]):
     return max(dets, key=lambda d: d.bbox_xywh[2] * d.bbox_xywh[3]) if dets else None
 
 
-def estimate_detection_depth_m(depth_img: Optional[np.ndarray], det: Detection) -> Optional[float]:
+def estimate_detection_depth_m(depth_img: Optional[np.ndarray], det: Detection, use_mask: bool = True) -> Optional[float]:
     """Estimate distance (meters) to the detected person from depth image.
     
-    Samples a central region of the bounding box (avoiding edges where depth may be less reliable)
-    and returns the median depth value.
+    Uses segmentation mask if available for precise depth extraction, otherwise falls back
+    to sampling a central region of the bounding box.
 
     Args: 
         depth_img: Depth image in meters (np.ndarray with NaN for invalid pixels), or None
-        det: Detection with bounding box in (x1, y1, width, height) format
+        det: Detection with bounding box and optional segmentation mask
+        use_mask: If True and mask available, use mask-based extraction (more precise)
 
     Returns: 
-        Median depth in meters, or None if depth unavailable or no valid pixels in ROI
+        Median depth in meters, or None if depth unavailable or no valid pixels
     """
     if depth_img is None:
+        logger.debug("Depth image is None, cannot estimate distance")
         return None
     
+    img_h, img_w = depth_img.shape
+    logger.debug(f"Estimating depth from image {img_w}x{img_h}, bbox={det.bbox_xywh}, use_mask={use_mask}, has_mask={det.mask is not None}")
+    
+    # Method 1: Use segmentation mask if available (most precise)
+    if use_mask and det.mask is not None:
+        # Ensure mask matches depth image dimensions
+        mask = det.mask
+        if mask.shape != (img_h, img_w):
+            logger.debug(f"Resizing mask from {mask.shape} to ({img_h}, {img_w})")
+            # Resize mask to match depth image
+            mask = cv2.resize(mask.astype(np.uint8), (img_w, img_h), 
+                            interpolation=cv2.INTER_NEAREST).astype(bool)
+        
+        # Extract depth values where mask is True
+        mask_pixels = np.sum(mask)
+        logger.debug(f"Mask covers {mask_pixels} pixels ({100*mask_pixels/(img_h*img_w):.1f}% of image)")
+        masked_depths = depth_img[mask]
+        valid_depths = masked_depths[~np.isnan(masked_depths)]
+        
+        if len(valid_depths) > 0:
+            # Use median for robustness, could also use percentile (e.g., 10th for closest point)
+            median_depth = float(np.median(valid_depths))
+            min_depth = float(np.min(valid_depths))
+            max_depth = float(np.max(valid_depths))
+            logger.debug(f"Mask-based depth: median={median_depth:.2f}m, range=[{min_depth:.2f}, {max_depth:.2f}]m, {len(valid_depths)} valid pixels")
+            return median_depth
+        else:
+            logger.debug(f"No valid depth pixels in mask ({mask_pixels} mask pixels, all NaN)")
+    
+    # Method 2: Fallback to bbox sampling (less precise but always works)
+    logger.debug("Using bbox-based depth extraction (fallback method)")
     # Extract bounding box (x1, y1, width, height)
     x1, y1, w, h = det.bbox_xywh
     
@@ -66,6 +99,7 @@ def estimate_detection_depth_m(depth_img: Optional[np.ndarray], det: Detection) 
     y_center = y1 + h / 2
     sample_w = w * 0.6
     sample_h = h * 0.6
+    logger.debug(f"Sampling inner 60% of bbox: center=({x_center:.0f},{y_center:.0f}), sample_size=({sample_w:.0f}x{sample_h:.0f})")
     
     # Convert to sample ROI pixel coordinates
     sample_x1 = int(x_center - sample_w / 2)
@@ -74,7 +108,6 @@ def estimate_detection_depth_m(depth_img: Optional[np.ndarray], det: Detection) 
     sample_y2 = int(y_center + sample_h / 2)
     
     # Clamp to image bounds
-    img_h, img_w = depth_img.shape
     sample_x1 = max(0, min(sample_x1, img_w - 1))
     sample_x2 = max(0, min(sample_x2, img_w - 1))
     sample_y1 = max(0, min(sample_y1, img_h - 1))
@@ -86,13 +119,19 @@ def estimate_detection_depth_m(depth_img: Optional[np.ndarray], det: Detection) 
     
     # Extract ROI and get valid depth values (excluding NaN)
     roi = depth_img[sample_y1:sample_y2, sample_x1:sample_x2]
+    roi_pixels = (sample_x2 - sample_x1) * (sample_y2 - sample_y1)
     valid_depths = roi[~np.isnan(roi)]
     
     if len(valid_depths) == 0:
+        logger.debug(f"No valid depth pixels in bbox ROI ({roi_pixels} total pixels, all NaN)")
         return None
     
     # Return median depth to be robust against outliers
-    return float(np.median(valid_depths))
+    median_depth = float(np.median(valid_depths))
+    min_depth = float(np.min(valid_depths))
+    max_depth = float(np.max(valid_depths))
+    logger.debug(f"Bbox-based depth: median={median_depth:.2f}m, range=[{min_depth:.2f}, {max_depth:.2f}]m, {len(valid_depths)}/{roi_pixels} valid pixels")
+    return median_depth
 
 
 def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig, shutdown_requested=None):
@@ -186,7 +225,7 @@ def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig, shutdown_reque
 
         # Visualize detections if enabled
         if cfg.visualize:
-            key = show_detections_grid(frames, detections_by_camera)
+            key = show_detections_grid(frames, detections_by_camera, depth_frames)
             if key == ord('q') or key == 27:  # 'q' or ESC to quit
                 logger.info("User requested quit via visualization window")
                 break
@@ -197,7 +236,7 @@ def run_loop(robot, image_client, ptz_client, cfg: RuntimeConfig, shutdown_reque
             from .visualization import save_annotated_frames
             abs_path = os.path.abspath(cfg.save_images)
             logger.info(f"Calling save_annotated_frames: dir={abs_path}, iteration={iteration}, frames={len(frames)}")
-            save_annotated_frames(frames, detections_by_camera, cfg.save_images, iteration)
+            save_annotated_frames(frames, detections_by_camera, cfg.save_images, iteration, depth_frames)
 
         # Check once mode before continuing
         if cfg.once:

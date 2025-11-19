@@ -81,7 +81,7 @@ DEFAULT_ZOOM = 1.0  # Zoom range [1.0, 30.0], 1.0 = no zoom
 TRANSFORM_MODE = "transform"  # or "bearing"
 
 # YOLO model settings
-DEFAULT_YOLO_MODELNAME = "yolov8x.pt"  # extra large model for accuracy
+DEFAULT_YOLO_MODELNAME = "yolo11m-seg.pt"  # medium model for accuracy
 # Models should be in people_observer/ directory (same as this config file)
 YOLO_MODELS_DIR = Path(__file__).parent
 DEFAULT_YOLO_MODEL = str(YOLO_MODELS_DIR / DEFAULT_YOLO_MODELNAME)  # Uses defined path
@@ -89,6 +89,7 @@ YOLO_IMG_SIZE = 640
 YOLO_DEVICE = "cuda"
 YOLO_HALF = True if YOLO_DEVICE == "cuda" else False  # Use half-precision FP16 for inference on CUDA
 YOLO_VERBOSE = False  # Set to True for detailed model inference logging
+DEFAULT_INCLUDE_DEPTH = True  # Use depth data if available
 
 # Detection thresholds
 PERSON_CLASS_ID = 0

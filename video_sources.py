@@ -55,12 +55,12 @@ class VideoSource(ABC):
     """Abstract base class for video sources."""
     
     @abstractmethod
-    def read(self) -> Tuple[bool, Optional[np.ndarray]]:
-        """Read next frame from video source.
+    def read(self) -> Tuple[bool, Optional[np.ndarray], Optional[np.ndarray]]:
+        """Read single frame from video source.
         
         Returns:
-            (success, frame): Tuple of success flag and BGR image array.
-                             Returns (False, None) on error or end of stream.
+            (success, visual_frame, depth_frame): Tuple of success flag, BGR image, and depth in meters (or None).
+                                                   Returns (False, None, None) on error or end of stream.
         """
         pass
     
@@ -101,8 +101,9 @@ class WebcamSource(VideoSource):
         
         logger.info(f"Opened webcam device {device}")
     
-    def read(self) -> Tuple[bool, Optional[np.ndarray]]:
-        return self.cap.read()
+    def read(self) -> Tuple[bool, Optional[np.ndarray], Optional[np.ndarray]]:
+        ret, frame = self.cap.read()
+        return (ret, frame, None)  # Webcam has no depth
     
     def release(self):
         if hasattr(self, 'cap') and self.cap:
@@ -127,7 +128,7 @@ class SpotPTZImageClient(VideoSource):
         max_retries: Max retry attempts for failed frame fetches (default: 3)
     """
     
-    def __init__(self, robot, source_name: str = "ptz", quality: int = 75, max_retries: int = 3):
+    def __init__(self, robot, source_name: str = "ptz", quality: int = 75, max_retries: int = 3, include_depth: bool = False):
         from bosdyn.client.image import ImageClient, build_image_request
         from bosdyn.api import image_pb2
         
@@ -135,6 +136,7 @@ class SpotPTZImageClient(VideoSource):
         self.source_name = source_name
         self.quality = quality
         self.max_retries = max_retries
+        self.include_depth = include_depth
         
         # Initialize ImageClient
         self.image_client = robot.ensure_client(ImageClient.default_service_name)
@@ -147,35 +149,76 @@ class SpotPTZImageClient(VideoSource):
                 f"Available sources: {sorted(available_sources)}"
             )
         
-        logger.info(f"Initialized Spot PTZ ImageClient for source '{source_name}'")
+        logger.info(f"Initialized Spot PTZ ImageClient for source '{source_name}' (depth={include_depth})")
         
-        # Pre-build image request for efficiency
+        # Pre-build image requests for efficiency
         self.image_request = build_image_request(
             source_name,
             quality_percent=quality,
             image_format=image_pb2.Image.FORMAT_JPEG
         )
+        
+        # Build depth request if enabled
+        self.depth_request = None
+        if include_depth:
+            # Construct depth source name (e.g., "ptz" -> "ptz_depth_in_visual_frame")
+            # Note: PTZ camera may not have depth - this will fail gracefully
+            depth_source_name = f"{source_name}_depth_in_visual_frame"
+            logger.debug(f"Looking for depth source: {depth_source_name}")
+            logger.debug(f"Available sources: {sorted(available_sources)}")
+            if depth_source_name in available_sources:
+                self.depth_request = build_image_request(
+                    depth_source_name,
+                    pixel_format=image_pb2.Image.PIXEL_FORMAT_DEPTH_U16,
+                    image_format=image_pb2.Image.FORMAT_RAW
+                )
+                logger.info(f"Depth source '{depth_source_name}' available and configured")
+            else:
+                logger.warning(f"Depth source '{depth_source_name}' not available, depth will be None")
+                logger.debug(f"Depth sources that exist: {[s for s in available_sources if 'depth' in s.lower()]}")
     
-    def read(self) -> Tuple[bool, Optional[np.ndarray]]:
-        """Fetch and decode single frame from PTZ camera.
+    def read(self) -> Tuple[bool, Optional[np.ndarray], Optional[np.ndarray]]:
+        """Fetch and decode frame(s) from PTZ camera.
         
         Returns:
-            (success, frame): BGR image array or (False, None) on error
+            (success, visual_frame, depth_frame): BGR image, depth in meters (or None), or (False, None, None) on error
         """
         for attempt in range(self.max_retries):
             try:
-                # Fetch image from robot
-                responses = self.image_client.get_image([self.image_request])
+                # Build request list
+                requests = [self.image_request]
+                if self.depth_request is not None:
+                    requests.append(self.depth_request)
+                
+                # Fetch image(s) from robot
+                responses = self.image_client.get_image(requests)
                 if not responses:
                     logger.warning(f"Empty response from ImageClient (attempt {attempt + 1}/{self.max_retries})")
                     continue
                 
-                # Decode JPEG
+                # Decode visual image
+                logger.debug(f"Decoding visual image from response (format: {responses[0].shot.image.format})")
                 img = self._decode_image(responses[0])
-                if img is not None:
-                    return (True, img)
+                if img is None:
+                    logger.warning(f"Failed to decode visual image (attempt {attempt + 1}/{self.max_retries})")
+                    continue
+                logger.debug(f"Visual image decoded: {img.shape[1]}x{img.shape[0]} pixels")
                 
-                logger.warning(f"Failed to decode image (attempt {attempt + 1}/{self.max_retries})")
+                # Decode depth image if requested
+                depth_img = None
+                if self.depth_request is not None and len(responses) > 1:
+                    logger.debug(f"Decoding depth image from response (format: {responses[1].shot.image.pixel_format})")
+                    depth_img = self._decode_depth_image(responses[1])
+                    if depth_img is None:
+                        logger.debug("Depth image unavailable (continuing with visual only)")
+                    else:
+                        valid_pixels = np.sum(~np.isnan(depth_img))
+                        total_pixels = depth_img.shape[0] * depth_img.shape[1]
+                        logger.debug(f"Depth image decoded: {depth_img.shape[1]}x{depth_img.shape[0]} pixels, {valid_pixels}/{total_pixels} valid ({100*valid_pixels/total_pixels:.1f}%)")
+                elif self.depth_request is not None:
+                    logger.debug(f"Depth requested but only {len(responses)} responses received (expected 2)")
+                
+                return (True, img, depth_img)
                 
             except Exception as e:
                 logger.warning(f"Frame fetch error (attempt {attempt + 1}/{self.max_retries}): {e}")
@@ -183,7 +226,7 @@ class SpotPTZImageClient(VideoSource):
                     time.sleep(0.1)  # Brief delay before retry
         
         logger.error(f"Failed to fetch frame after {self.max_retries} attempts")
-        return (False, None)
+        return (False, None, None)
     
     def _decode_image(self, response) -> Optional[np.ndarray]:
         """Decode ImageResponse to BGR numpy array."""
@@ -210,6 +253,52 @@ class SpotPTZImageClient(VideoSource):
         else:
             logger.error(f"Unsupported image format: {img_format}")
             return None
+    
+    def _decode_depth_image(self, response) -> Optional[np.ndarray]:
+        """Decode depth ImageResponse to float32 ndarray in meters.
+        
+        Args:
+            response: ImageResponse with PIXEL_FORMAT_DEPTH_U16 depth data
+        
+        Returns:
+            np.ndarray of shape (rows, cols) with depth in meters, or None if unavailable
+            Invalid depth pixels (0 and 65535) are set to NaN
+        """
+        from bosdyn.api import image_pb2
+        
+        # Verify this is depth format
+        if response.shot.image.pixel_format != image_pb2.Image.PIXEL_FORMAT_DEPTH_U16:
+            logger.warning(f"Expected DEPTH_U16 format, got {response.shot.image.pixel_format}")
+            return None
+        
+        rows = response.shot.image.rows
+        cols = response.shot.image.cols
+        data = response.shot.image.data
+        logger.debug(f"Decoding depth image: {cols}x{rows} pixels, {len(data)} bytes")
+        
+        # Decode uint16 depth data
+        depth_u16 = np.frombuffer(data, dtype=np.uint16).reshape(rows, cols)
+        
+        # Get scale factor from ImageSource (converts uint16 -> meters)
+        depth_scale = response.source.depth_scale if response.source.depth_scale > 0 else 1.0
+        logger.debug(f"Depth scale factor: {depth_scale} (1 uint16 unit = {1.0/depth_scale:.6f} meters)")
+        
+        # Convert to float32 meters
+        depth_m = depth_u16.astype(np.float32) / depth_scale
+        
+        # Mask out invalid depth values (0 and 65535 = no data)
+        invalid_mask = (depth_u16 == 0) | (depth_u16 == 65535)
+        invalid_count = np.sum(invalid_mask)
+        depth_m[invalid_mask] = np.nan
+        
+        # Log depth statistics
+        valid_depths = depth_m[~np.isnan(depth_m)]
+        if len(valid_depths) > 0:
+            logger.debug(f"Depth stats: min={np.min(valid_depths):.2f}m, max={np.max(valid_depths):.2f}m, mean={np.mean(valid_depths):.2f}m, {invalid_count} invalid pixels")
+        else:
+            logger.warning(f"All {rows*cols} depth pixels are invalid (NaN)")
+        
+        return depth_m
     
     def release(self):
         """Release resources (ImageClient managed by SDK)."""
@@ -253,7 +342,7 @@ class SpotPTZWebRTC(VideoSource):
             "See TODO in video_sources.py for integration steps."
         )
     
-    def read(self) -> Tuple[bool, Optional[np.ndarray]]:
+    def read(self) -> Tuple[bool, Optional[np.ndarray], Optional[np.ndarray]]:
         """Get next frame from WebRTC stream queue.
         
         TODO: Implement frame queue polling

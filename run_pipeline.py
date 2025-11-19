@@ -6,8 +6,10 @@ import importlib.util
 import importlib.machinery
 import numpy as np
 import logging
+from typing import Optional
 
 from video_sources import VideoSource, create_video_source
+from detection_types import PersonDetection, validate_depth_against_heuristic, estimate_distance_from_bbox
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -164,19 +166,98 @@ class PerceptionPipeline:
         except Exception as e:
             logger.warning(f"DeepFace model pre-loading failed: {e} - will load on first use")
 
-    def read_perception(self):
-        """Read frame from video source and extract perception data."""
-        ret, frame = self.video_source.read()
-        if not ret or frame is None:
-            return None
+    def read_perception(self, person_detection: Optional[PersonDetection] = None):
+        """Read frame from video source and extract perception data.
+        
+        Args:
+            person_detection: Optional PersonDetection from people_observer with pre-computed
+                            distance, mask, and depth frame. If provided, uses this instead
+                            of fetching new frame.
+        """
+        logger.debug(f"read_perception called: person_detection={'present' if person_detection else 'None'}")
+        
+        # Use provided detection or fetch new frame
+        if person_detection is not None:
+            # Use frame and depth from person_detection
+            frame = person_detection.frame
+            depth_frame = person_detection.depth_frame
+            logger.debug(f"Using person_detection: frame={'present' if frame is not None else 'None'}, depth_frame={'present' if depth_frame is not None else 'None'}")
+            if frame is None:
+                # No frame provided, fetch from video source
+                logger.debug("No frame in person_detection, fetching from video source")
+                ret, frame, depth_frame = self.video_source.read()
+                if not ret or frame is None:
+                    logger.debug("Frame read failed")
+                    return None
+        else:
+            # Fetch frame from video source
+            logger.debug("Fetching frame from video source")
+            ret, frame, depth_frame = self.video_source.read()
+            if not ret or frame is None:
+                logger.debug("Frame read failed")
+                return None
+        
+        logger.debug(f"Frame acquired: shape={frame.shape}, depth_frame={'present' if depth_frame is not None else 'None'}")
+        
         frame_h, frame_w = frame.shape[:2]
 
         # Pose -> landmarks & action
         landmarks, results = self.pose.extract_landmarks(frame)
         if landmarks is not None:
             pose_label = self.pose.detect_action(landmarks)
-            current_action = pose_label  # TODO: implement spot's current action
-            distance_m = estimate_distance_m(landmarks, frame_h) # TODO: use spot's distance estimator from robot using depth if available
+            current_action = pose_label  # TODO: implement spot's current action from robot state
+            
+            # Calculate distance using depth if available
+            if person_detection is not None and person_detection.has_depth():
+                # Use pre-computed distance from people_observer (already validated)
+                distance_m = person_detection.distance_m
+                logger.debug(f"[Tier 1] Using pre-computed distance: {distance_m:.2f}m (source: {person_detection.depth_source})")
+            elif depth_frame is not None:
+                # Compute distance from depth frame
+                logger.debug("[Tier 2] Attempting depth extraction from depth_frame")
+                # Extract bbox from pose landmarks
+                xs = landmarks[:, 0] * frame_w
+                ys = landmarks[:, 1] * frame_h
+                x_min, x_max = int(xs.min()), int(xs.max())
+                y_min, y_max = int(ys.min()), int(ys.max())
+                bbox_xywh = (x_min, y_min, x_max - x_min, y_max - y_min)
+                logger.debug(f"[Tier 2] Extracted bbox from pose: {bbox_xywh}")
+                
+                # Import depth extraction function from people_observer
+                try:
+                    from people_observer.tracker import estimate_detection_depth_m
+                    from people_observer.detection import Detection
+                    
+                    # Create temporary Detection for depth extraction
+                    det = Detection(source="ptz", bbox_xywh=bbox_xywh, conf=1.0, mask=None)
+                    depth_distance = estimate_detection_depth_m(depth_frame, det, use_mask=False)
+                    logger.debug(f"[Tier 2] Depth extraction result: {depth_distance:.2f}m" if depth_distance else "[Tier 2] Depth extraction failed")
+                    
+                    # Validate depth against heuristic
+                    if depth_distance is not None:
+                        is_valid = validate_depth_against_heuristic(
+                            depth_distance, bbox_xywh, frame_h, tolerance_factor=2.5
+                        )
+                        if is_valid:
+                            distance_m = depth_distance
+                            logger.debug(f"[Tier 2] Depth validation passed: using {distance_m:.2f}m")
+                        else:
+                            # Depth failed validation, use heuristic
+                            distance_m = estimate_distance_from_bbox(bbox_xywh, frame_h)
+                            logger.warning(f"[Tier 2] Depth validation failed ({depth_distance:.2f}m), using heuristic: {distance_m:.2f}m")
+                    else:
+                        # Depth unavailable, use heuristic
+                        distance_m = estimate_distance_from_bbox(bbox_xywh, frame_h)
+                        logger.debug(f"[Tier 2] Depth unavailable, using heuristic: {distance_m:.2f}m")
+                except ImportError:
+                    # Fallback if people_observer not available
+                    distance_m = estimate_distance_m(landmarks, frame_h)
+                    logger.debug(f"[Tier 2] ImportError, using legacy heuristic: {distance_m:.2f}m")
+            else:
+                # No depth available, use legacy heuristic
+                logger.debug("[Tier 3] No depth available, using legacy heuristic")
+                distance_m = estimate_distance_m(landmarks, frame_h)
+                logger.debug(f"[Tier 3] Legacy heuristic distance: {distance_m:.2f}m" if distance_m else "[Tier 3] No distance available")
         else:
             pose_label = "unknown"
             current_action = "unknown"

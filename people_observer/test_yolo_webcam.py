@@ -50,11 +50,11 @@ CONFIDENCE_STD_DEV_MULTIPLIER = 1.0  # Std deviations below mean for threshold
 # YOLOv8 model variants to test
 # Note: config.DEFAULT_YOLO_MODEL sets the model used by the main app (currently yolov8x.pt)
 YOLO_MODELS = [
-    ("yolov8n.pt", "Nano"),
-    ("yolov8s.pt", "Small"),
-    ("yolov8m.pt", "Medium"),
-    ("yolov8l.pt", "Large"),
-    ("yolov8x.pt", "Extra Large"),
+    ("yolo11n-seg.pt", "Nano"),
+    ("yolo11s-seg.pt", "Small"),
+    ("yolo11m-seg.pt", "Medium"),
+    ("yolo11l-seg.pt", "Large"),
+    ("yolo11x-seg.pt", "Extra Large"),
 ]
 
 # Colors for visualization (BGR)
@@ -143,7 +143,7 @@ def test_model_on_webcam(model_name: str, description: str,
         print(f"Loading {model_name}...")
         model = YOLO(model_name)
         print(f"Model loaded")
-        
+
         # Open webcam
         cap = cv2.VideoCapture(0)
         if not cap.isOpened():

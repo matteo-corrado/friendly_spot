@@ -32,16 +32,18 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Detection:
-    """YOLO detection result.
+    """YOLO detection result with segmentation mask.
     
     Attributes:
         source: Camera source name
         bbox_xywh: Bounding box as (x1, y1, width, height) in pixels
         conf: Detection confidence [0.0, 1.0]
+        mask: Segmentation mask as boolean numpy array (H, W) or None if unavailable
     """
     source: str
     bbox_xywh: Tuple[int, int, int, int]
     conf: float
+    mask: np.ndarray = None  # Optional segmentation mask
 
 
 class YoloDetector:
@@ -68,12 +70,22 @@ class YoloDetector:
             )
         
         logger.info(f"Loading YOLO model from {model_path}")
+        logger.debug(f"Model config: imgsz={imgsz}, conf={conf}, iou={iou}, device={device}, half={half}")
         self.model = YOLO(model_path)
         self.model.fuse()
         self.imgsz = imgsz
         self.conf = conf
         self.iou = iou
         self.verbose = verbose
+        
+        # Check if model supports segmentation
+        self.has_segmentation = hasattr(self.model, 'task') and 'segment' in str(self.model.task)
+        if self.has_segmentation:
+            logger.info("Model supports instance segmentation")
+            logger.debug(f"Model task: {self.model.task}")
+        else:
+            logger.info("Model is detection-only (no segmentation)")
+            logger.debug(f"Model task: {getattr(self.model, 'task', 'unknown')}")
         
         # Determine device (GPU if available, fallback to CPU)
         if device == "cuda" and torch.cuda.is_available():
@@ -92,11 +104,12 @@ class YoloDetector:
             logger.info("YOLO using CPU")
 
     def predict_batch(self, bgr_list: List[np.ndarray]) -> List[List[Detection]]:
-        """Run YOLO on a batch of BGR images.
+        """Run YOLO on a batch of BGR images with segmentation if available.
 
         Input: list of np.ndarray images (BGR)
-        Output: list (per image) of Detection entries (source is filled by caller)
+        Output: list (per image) of Detection entries with masks (source is filled by caller)
         """
+        logger.debug(f"Running YOLO prediction on batch of {len(bgr_list)} images")
         out: List[List[Detection]] = []
         results = self.model.predict(
             bgr_list, imgsz=self.imgsz, conf=self.conf, iou=self.iou,
@@ -104,12 +117,46 @@ class YoloDetector:
             half=self.half,  # FP16 only on GPU
             verbose=self.verbose
         )
-        for r, img in zip(results, bgr_list):
+        logger.debug(f"YOLO prediction complete, processing {len(results)} results")
+        for img_idx, (r, img) in enumerate(zip(results, bgr_list)):
             dets: List[Detection] = []
             if r.boxes is not None:
-                for b in r.boxes:
+                num_detections = len(r.boxes)
+                logger.debug(f"Image {img_idx}: Found {num_detections} person detections")
+                
+                # Extract segmentation masks if available
+                masks = None
+                if self.has_segmentation and hasattr(r, 'masks') and r.masks is not None:
+                    # masks.data is tensor of shape (N, H, W) where N is number of detections
+                    masks = r.masks.data.cpu().numpy()  # Convert to numpy
+                    logger.debug(f"Image {img_idx}: Extracted {len(masks)} segmentation masks, shape: {masks[0].shape if len(masks) > 0 else 'N/A'}")
+                elif self.has_segmentation:
+                    logger.debug(f"Image {img_idx}: Model supports segmentation but no masks in results")
+                else:
+                    logger.debug(f"Image {img_idx}: Detection-only model, no masks available")
+                
+                for i, b in enumerate(r.boxes):
                     x1, y1, x2, y2 = map(int, b.xyxy[0].tolist())
                     conf = float(b.conf[0])
-                    dets.append(Detection("", (x1, y1, x2 - x1, y2 - y1), conf))
+                    bbox_w, bbox_h = x2 - x1, y2 - y1
+                    logger.debug(f"Image {img_idx}, Detection {i}: bbox=({x1},{y1},{bbox_w},{bbox_h}), conf={conf:.3f}")
+                    
+                    # Extract mask for this detection if available
+                    mask = None
+                    if masks is not None and i < len(masks):
+                        # Resize mask to original image size if needed
+                        mask_data = masks[i]
+                        if mask_data.shape != (img.shape[0], img.shape[1]):
+                            import cv2
+                            logger.debug(f"Image {img_idx}, Detection {i}: Resizing mask from {mask_data.shape} to ({img.shape[0]}, {img.shape[1]})")
+                            mask_data = cv2.resize(mask_data.astype(np.float32), 
+                                                  (img.shape[1], img.shape[0]))
+                        # Convert to boolean mask (threshold at 0.5)
+                        mask = (mask_data > 0.5).astype(bool)
+                        mask_pixels = np.sum(mask)
+                        logger.debug(f"Image {img_idx}, Detection {i}: Mask extracted, {mask_pixels} pixels ({100*mask_pixels/(img.shape[0]*img.shape[1]):.1f}% of image)")
+                    
+                    dets.append(Detection("", (x1, y1, x2 - x1, y2 - y1), conf, mask))
+                logger.debug(f"Image {img_idx}: Total {len(dets)} detections added")
             out.append(dets)
         return out

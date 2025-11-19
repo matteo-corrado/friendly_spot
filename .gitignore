@@ -15,7 +15,7 @@ __pycache__/
 # Test outputs
 *.txt
 
-# Credentials and secrets (NEVER COMMIT THESE)
+# Credentials and secrets
 .env
 .env.*
 *credentials*

@@ -139,7 +139,10 @@ class FriendlySpotPipeline:
         # Initialize behavior executor (only if robot connected and execution enabled)
         if self.robot and not self.args.no_execute:
             logger.info("Initializing behavior executor...")
-            self.executor = BehaviorExecutor(self.robot)
+            self.executor = BehaviorExecutor(
+                self.robot,
+                force_take_lease=self.args.force_take_lease
+            )
             logger.debug("Behavior executor initialized")
             # Note: Lease/E-Stop managed automatically via context managers in execute_behavior()
         else:
@@ -535,7 +538,14 @@ class FriendlySpotPipeline:
         loop_count = 0
         loop_period = 1.0 / self.args.rate
         
+        # Use BehaviorExecutor as context manager to hold lease/estop for entire session
+        executor_context = self.executor if self.executor else None
+        
         try:
+            # Acquire and hold robot control for entire session
+            if executor_context:
+                executor_context.__enter__()
+            
             while self.running:
                 loop_start = time.time()
                 
@@ -625,6 +635,13 @@ class FriendlySpotPipeline:
             logger.error(f"Pipeline error: {e}", exc_info=True)
         
         finally:
+            # Release robot control
+            if executor_context:
+                try:
+                    executor_context.__exit__(None, None, None)
+                except Exception as e:
+                    logger.error(f"Error releasing robot control: {e}")
+            
             self.cleanup()
     
     def cleanup(self):
@@ -702,6 +719,11 @@ def main():
         '--no-execute',
         action='store_true',
         help='Disable robot command execution (perception only)'
+    )
+    parser.add_argument(
+        '--force-take-lease',
+        action='store_true',
+        help='Forcefully take lease from tablet or other clients (use if lease conflicts occur)'
     )
     parser.add_argument(
         '--enable-observer',

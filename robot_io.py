@@ -30,6 +30,7 @@ from bosdyn.client.robot_command import RobotCommandClient
 from bosdyn.client.robot_state import RobotStateClient
 from bosdyn.client.image import ImageClient
 from bosdyn.client.power import PowerClient
+from bosdyn.client.world_object import WorldObjectClient
 
 # Spot CAM imports (optional, only if needed)
 try:
@@ -135,6 +136,7 @@ class RobotClients:
     _estop: Optional[EstopClient] = None
     _power: Optional[PowerClient] = None
     _image: Optional[ImageClient] = None
+    _world_object: Optional[WorldObjectClient] = None
     
     # Spot CAM clients (cached after first access)
     _compositor: Optional['CompositorClient'] = None
@@ -184,6 +186,13 @@ class RobotClients:
         return self._image
     
     @property
+    def world_object(self) -> WorldObjectClient:
+        """Get WorldObjectClient (fiducial/object detection)."""
+        if self._world_object is None:
+            self._world_object = self.robot.ensure_client(WorldObjectClient.default_service_name)
+        return self._world_object
+    
+    @property
     def compositor(self) -> 'CompositorClient':
         """Get CompositorClient (Spot CAM compositor control)."""
         if not SPOT_CAM_AVAILABLE:
@@ -219,45 +228,75 @@ class ManagedLease:
     and returns lease on exit.
     
     Usage:
+        # Normal acquire (fails if another client has lease):
         with ManagedLease(robot) as lease_client:
-            # lease is active here
             command_client.robot_command(cmd)
-        # lease automatically returned
+        
+        # Force take lease from tablet/other clients:
+        with ManagedLease(robot, force_take=True) as lease_client:
+            command_client.robot_command(cmd)
     
     Args:
         robot: Authenticated Robot instance
         must_acquire: If True, raises error if lease cannot be acquired
         return_at_exit: If True, returns lease on context exit
+        force_take: If True, uses take() to forcefully claim lease from other holders
+                   (including tablet). Use with caution - interrupts other operations.
     """
     
     def __init__(
         self,
         robot: Robot,
         must_acquire: bool = True,
-        return_at_exit: bool = True
+        return_at_exit: bool = True,
+        force_take: bool = False
     ):
         self.robot = robot
         self.must_acquire = must_acquire
         self.return_at_exit = return_at_exit
+        self.force_take = force_take
         self.lease_client = robot.ensure_client(LeaseClient.default_service_name)
         self.lease_keep_alive = None
     
     def __enter__(self) -> LeaseClient:
-        """Acquire lease and start keep-alive."""
+        """Acquire or take lease and start keep-alive."""
+        # If force_take is enabled, forcefully take the lease from current holder
+        if self.force_take:
+            try:
+                from bosdyn.client.lease import ResourceAlreadyClaimedError
+                logger.info("Force-taking lease from current holder...")
+                lease = self.lease_client.take()
+                logger.info(f"Successfully took lease: {lease.lease_proto.resource}")
+                # Add the taken lease to the wallet
+                if lease and self.robot.lease_wallet:
+                    self.robot.lease_wallet.add(lease)
+            except Exception as e:
+                logger.error(f"Failed to force-take lease: {e}")
+                if self.must_acquire:
+                    raise
+        
+        # Create LeaseKeepAlive with explicit wallet reference (SDK pattern)
+        # The wallet is shared across all clients from the same Robot instance
+        # If we already took the lease above, LeaseKeepAlive will use it from the wallet
         self.lease_keep_alive = LeaseKeepAlive(
             self.lease_client,
-            must_acquire=self.must_acquire,
+            lease_wallet=self.robot.lease_wallet,
+            must_acquire=self.must_acquire and not self.force_take,  # Don't re-acquire if we took it
             return_at_exit=self.return_at_exit
         )
         self.lease_keep_alive.__enter__()
-        logger.info("Acquired robot lease")
+        logger.info("Robot lease acquired and keep-alive started")
         return self.lease_client
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Return lease and stop keep-alive."""
         if self.lease_keep_alive:
-            self.lease_keep_alive.__exit__(exc_type, exc_val, exc_tb)
-            logger.info("Released robot lease")
+            try:
+                self.lease_keep_alive.__exit__(exc_type, exc_val, exc_tb)
+                logger.info("Robot lease returned and keep-alive stopped")
+            except Exception as e:
+                logger.warning(f"Error during lease cleanup: {e}")
+                # Don't re-raise - cleanup errors shouldn't mask original exceptions
 
 
 class ManagedEstop:
@@ -271,44 +310,113 @@ class ManagedEstop:
             # E-Stop is active here
             command_client.robot_command(cmd)
         # E-Stop automatically deregistered
+        
+        # Skip E-Stop registration when taking lease from tablet:
+        with ManagedEstop(robot, skip_if_active=True):
+            # Uses existing E-Stop from tablet
+            command_client.robot_command(cmd)
     
     Args:
         robot: Authenticated Robot instance
         name: Name for this E-Stop endpoint
         timeout_sec: E-Stop timeout in seconds (default: 9.0)
+        skip_if_active: If True, skip E-Stop registration if robot motors are on
+                       (assumes existing E-Stop from tablet/other client)
     """
     
     def __init__(
         self,
         robot: Robot,
         name: str = "FriendlySpot",
-        timeout_sec: float = 9.0
+        timeout_sec: float = 9.0,
+        skip_if_active: bool = False
     ):
         self.robot = robot
         self.name = name
         self.timeout_sec = timeout_sec
+        self.skip_if_active = skip_if_active
         self.estop_client = None
         self.estop_endpoint = None
         self.estop_keep_alive = None
+        self.skipped = False
     
     def __enter__(self) -> EstopEndpoint:
         """Register E-Stop endpoint and start keep-alive."""
-        self.estop_client = self.robot.ensure_client(EstopClient.default_service_name)
-        self.estop_endpoint = EstopEndpoint(
-            self.estop_client,
-            self.name,
-            self.timeout_sec
-        )
-        self.estop_endpoint.force_simple_setup()
-        self.estop_keep_alive = EstopKeepAlive(self.estop_endpoint)
-        logger.info(f"Software E-Stop registered: {self.name}")
-        return self.estop_endpoint
+        # Check if we should skip E-Stop registration
+        if self.skip_if_active:
+            try:
+                # Check if robot is already powered on (indicates active E-Stop)
+                if self.robot.is_powered_on():
+                    logger.info("Motors already on - skipping E-Stop registration (using existing E-Stop)")
+                    self.skipped = True
+                    return None
+            except Exception as e:
+                logger.warning(f"Could not check power state: {e} - attempting E-Stop registration")
+        
+        # Normal E-Stop registration
+        try:
+            self.estop_client = self.robot.ensure_client(EstopClient.default_service_name)
+            self.estop_endpoint = EstopEndpoint(
+                self.estop_client,
+                self.name,
+                self.timeout_sec
+            )
+            self.estop_endpoint.force_simple_setup()
+            self.estop_keep_alive = EstopKeepAlive(self.estop_endpoint)
+            logger.info(f"Software E-Stop registered: {self.name}")
+            return self.estop_endpoint
+        except Exception as e:
+            # If registration fails and skip_if_active is set, assume existing E-Stop is fine
+            if self.skip_if_active and "motors are on" in str(e).lower():
+                logger.warning(f"E-Stop registration failed (motors already on) - using existing E-Stop: {e}")
+                self.skipped = True
+                return None
+            else:
+                # Re-raise if this is an unexpected error
+                logger.error(f"Failed to register E-Stop: {e}")
+                raise
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Deregister E-Stop and stop keep-alive."""
+        if self.skipped:
+            logger.debug("E-Stop was not registered - no cleanup needed")
+            return
+        
         if self.estop_keep_alive:
-            self.estop_keep_alive.shutdown()
-        logger.info("Software E-Stop deregistered")
+            try:
+                self.estop_keep_alive.shutdown()
+                logger.info("Software E-Stop deregistered")
+            except Exception as e:
+                logger.warning(f"Error during E-Stop cleanup: {e}")
+
+
+def take_lease(robot: Robot) -> bool:
+    """Forcefully take the lease from the current holder (e.g., tablet).
+    
+    Use this when another client has the lease and you need to take control.
+    The current lease holder will lose control immediately.
+    
+    Args:
+        robot: Robot instance
+    
+    Returns:
+        True if lease was successfully taken, False otherwise
+    
+    Example:
+        if take_lease(robot):
+            print("Lease acquired - you now have control")
+        else:
+            print("Failed to take lease")
+    """
+    try:
+        lease_client = robot.ensure_client(LeaseClient.default_service_name)
+        lease = lease_client.take()
+        robot.lease_wallet.add(lease)
+        logger.info(f"Successfully took lease: {lease.lease_proto.resource}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to take lease: {e}")
+        return False
 
 
 def check_estop(robot: Robot) -> bool:

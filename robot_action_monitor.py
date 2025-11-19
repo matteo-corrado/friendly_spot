@@ -153,7 +153,7 @@ class RobotActionMonitor:
         """Get detailed robot state information for debugging.
         
         Returns:
-            Dictionary with velocity, power state, and other metrics
+            Dictionary with velocity, power state, battery, and other metrics
         """
         try:
             state = self.state_client.get_robot_state()
@@ -161,6 +161,19 @@ class RobotActionMonitor:
             velocity = state.kinematic_state.velocity_of_body_in_odom
             linear_vel = velocity.linear
             angular_vel = velocity.angular
+            
+            # Battery state
+            battery_pct = state.power_state.locomotion_charge_percentage.value
+            shore_power = state.power_state.shore_power_state
+            
+            # E-Stop state
+            estop_states = []
+            for estop in state.estop_states:
+                estop_states.append({
+                    'name': estop.name,
+                    'type': robot_state_pb2.EStopState.Type.Name(estop.type),
+                    'state': robot_state_pb2.EStopState.State.Name(estop.state)
+                })
             
             return {
                 'linear_velocity': {
@@ -178,8 +191,83 @@ class RobotActionMonitor:
                 'power_state': robot_state_pb2.PowerState.MotorPowerState.Name(
                     state.power_state.motor_power_state
                 ),
+                'battery': {
+                    'percentage': battery_pct,
+                    'shore_power_connected': shore_power == 1,
+                    'low_battery': battery_pct < 20.0
+                },
+                'estop_states': estop_states,
                 'action': self._last_action
             }
         except Exception as e:
             logger.error(f"Failed to get detailed state: {e}")
             return {'error': str(e)}
+    
+    def get_battery_percentage(self) -> float:
+        """Get current battery percentage.
+        
+        Returns:
+            Battery percentage (0-100), or 0 on error
+        """
+        try:
+            state = self.state_client.get_robot_state()
+            return state.power_state.locomotion_charge_percentage.value
+        except Exception as e:
+            logger.error(f"Failed to get battery percentage: {e}")
+            return 0.0
+    
+    def is_battery_low(self, threshold: float = 20.0) -> bool:
+        """Check if battery is below threshold.
+        
+        Args:
+            threshold: Battery percentage threshold (default 20%)
+        
+        Returns:
+            True if battery below threshold
+        """
+        return self.get_battery_percentage() < threshold
+    
+    def get_estop_states(self) -> list:
+        """Get all E-Stop states.
+        
+        Returns:
+            List of E-Stop state dictionaries
+        """
+        try:
+            state = self.state_client.get_robot_state()
+            estop_states = []
+            for estop in state.estop_states:
+                estop_states.append({
+                    'name': estop.name,
+                    'type': robot_state_pb2.EStopState.Type.Name(estop.type),
+                    'state': robot_state_pb2.EStopState.State.Name(estop.state),
+                    'is_stopped': estop.state != robot_state_pb2.EStopState.STATE_NOT_ESTOPPED
+                })
+            return estop_states
+        except Exception as e:
+            logger.error(f"Failed to get E-Stop states: {e}")
+            return []
+
+    def get_battery_percentage(self) -> float:
+        """Get current battery percentage.
+        
+        Returns:
+            Battery percentage (0-100), or 0 on error
+        """
+        try:
+            state = self.state_client.get_robot_state()
+            return state.power_state.locomotion_charge_percentage.value
+        except Exception as e:
+            logger.error(f"Failed to get battery percentage: {e}")
+            return 0.0
+    
+    def is_battery_low(self, threshold: float = 20.0) -> bool:
+        """Check if battery is below threshold.
+        
+        Args:
+            threshold: Battery percentage threshold (default 20%)
+        
+        Returns:
+            True if battery below threshold
+        """
+        return self.get_battery_percentage() < threshold

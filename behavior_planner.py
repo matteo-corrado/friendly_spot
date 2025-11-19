@@ -86,7 +86,7 @@ class ComfortHyperParameters:
             "running": -0.35,
             "walking": -0.08,
             "standing": 0.05,
-            "arms_crossed": -0.1,
+            "arms_crossed": -0.01,
             "waving": 0.12,
             "raising_hand": 0.08,
             "clapping": 0.06,
@@ -99,7 +99,7 @@ class ComfortHyperParameters:
         default_factory=lambda: {
             # Positive/welcoming gestures
             "thumb_up": 0.2,          # MediaPipe: Thumb_Up
-            "iloveyou": 0.3,         # MediaPipe: ILoveYou (strong positive)
+            "iloveyou": 0.4,         # MediaPipe: ILoveYou (strong positive)
             "victory": 0.06,          # MediaPipe: Victory (peace sign)
             "open_palm": 0.05,        # MediaPipe: Open_Palm (neutral/welcoming)
             # Negative/cautious gestures
@@ -115,10 +115,10 @@ class ComfortHyperParameters:
     emotion_weights: Dict[str, float] = field(
         default_factory=lambda: {
             # Positive emotions (DeepFace recognized)
-            "happy": 0.2,           # DeepFace: happy - strong positive signal
+            "happy": 0.4,           # DeepFace: happy - strong positive signal
             "surprise": 0.06,        # DeepFace: surprise - mild positive (neutral-to-positive)
             # Neutral
-            "neutral": 0.0,          # DeepFace: neutral - baseline
+            "neutral": 0.1,          # DeepFace: neutral - baseline
             # Negative emotions (DeepFace recognized)
             "sad": -0.15,            # DeepFace: sad - moderate negative
             "disgust": -0.22,        # DeepFace: disgust - strong negative
@@ -268,8 +268,8 @@ class ComfortModel:
 
 
 TARGET_COMFORT: Dict[BehaviorLabel, float] = {
-    BehaviorLabel.GO_CLOSE: 0.92,
-    BehaviorLabel.GO_CLOSE_SLOWLY: 0.75,
+    BehaviorLabel.GO_CLOSE: 0.85,
+    BehaviorLabel.GO_CLOSE_SLOWLY: 0.7,
     BehaviorLabel.STAY: 0.6,
     BehaviorLabel.SIT: 0.46,
     BehaviorLabel.BACK_AWAY_SLOWLY: 0.32,

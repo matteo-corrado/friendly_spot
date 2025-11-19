@@ -53,6 +53,8 @@ class PerceptionInput:
     pose_landmarks: Optional[object] = None  # numpy array
     emotion_scores: Optional[dict] = None
     frame: Optional[object] = None  # numpy array
+    ptz_pan: Optional[float] = None  # PTZ pan angle in degrees
+    ptz_tilt: Optional[float] = None  # PTZ tilt angle in degrees
 
 
 @dataclass
@@ -130,11 +132,11 @@ class ComfortHyperParameters:
     )
     # Behavior thresholds are ordered from highest comfort to lowest.
     behavior_thresholds: Tuple[Tuple[float, BehaviorLabel], ...] = (
-        (0.82, BehaviorLabel.GO_CLOSE),
-        (0.68, BehaviorLabel.GO_CLOSE_SLOWLY),
-        (0.52, BehaviorLabel.STAY),
-        (0.42, BehaviorLabel.SIT),
-        (0.28, BehaviorLabel.BACK_AWAY_SLOWLY),
+        (0.85, BehaviorLabel.GO_CLOSE),
+        (0.71, BehaviorLabel.GO_CLOSE_SLOWLY),
+        (0.6, BehaviorLabel.STAY),
+        (0.4, BehaviorLabel.SIT),
+        (0.23, BehaviorLabel.BACK_AWAY_SLOWLY),
         (0.0, BehaviorLabel.BACK_AWAY),
     )
 

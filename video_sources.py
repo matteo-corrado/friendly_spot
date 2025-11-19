@@ -215,11 +215,38 @@ class SpotPTZImageClient(VideoSource):
         # Initialize ImageClient for specified service
         # For Spot CAM: use 'spot-cam-image' service instead of default 'image' service
         logger.info(f"Connecting to image service: {image_service}")
-        self.image_client = robot.ensure_client(image_service)
-        
-        # Validate source exists in this service
-        available_sources = {s.name for s in self.image_client.list_image_sources()}
-        logger.debug(f"Available sources in '{image_service}': {sorted(available_sources)}")
+        try:
+            self.image_client = robot.ensure_client(image_service)
+            
+            # Validate source exists in this service
+            available_sources = {s.name for s in self.image_client.list_image_sources()}
+            logger.debug(f"Available sources in '{image_service}': {sorted(available_sources)}")
+        except Exception as e:
+            logger.error(f"Failed to connect to image service '{image_service}': {e}")
+            if image_service == SPOT_CAM_IMAGE_SERVICE:
+                logger.error("Spot CAM PTZ service unavailable - attempting fallback cameras...")
+                # Fallback to standard image service
+                self.image_client = robot.ensure_client(ImageClient.default_service_name)
+                available_sources = {s.name for s in self.image_client.list_image_sources()}
+                logger.info(f"Available sources in standard service: {sorted(available_sources)}")
+                
+                # Preferred fallback order: hand camera > pano camera > front fisheye
+                fallback_cameras = ['hand_color_image', 'pano_image', 'frontleft_fisheye_image']
+                source_name = None
+                for camera in fallback_cameras:
+                    if camera in available_sources:
+                        source_name = camera
+                        logger.info(f"Using fallback camera: {source_name}")
+                        break
+                
+                if source_name is None:
+                    raise RuntimeError(
+                        f"No suitable camera sources available. "
+                        f"Tried: {fallback_cameras}. "
+                        f"Found: {sorted(available_sources)}"
+                    )
+            else:
+                raise
         
         if source_name not in available_sources:
             raise ValueError(

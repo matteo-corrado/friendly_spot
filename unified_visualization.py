@@ -156,13 +156,17 @@ def draw_detection_with_mask(image: np.ndarray, bbox: Tuple[int, int, int, int],
 
 
 def draw_perception_results(image: np.ndarray, perception_data,
-                           distance: Optional[float] = None) -> np.ndarray:
+                           distance: Optional[float] = None,
+                           desired_behavior: Optional[str] = None,
+                           comfort_score: Optional[float] = None) -> np.ndarray:
     """Draw perception pipeline results on image.
     
     Args:
         image: BGR image
         perception_data: PerceptionInput with pose, face, emotion, gesture
         distance: Distance to person in meters
+        desired_behavior: Desired robot behavior/action to display
+        comfort_score: Calculated comfort score (0-1)
     
     Returns:
         Annotated image
@@ -233,6 +237,10 @@ def draw_perception_results(image: np.ndarray, perception_data,
         info_lines.append(f"Gesture: {perception_data.gesture_label}")
     if distance is not None:
         info_lines.append(f"Distance: {distance:.2f}m")
+    if comfort_score is not None:
+        info_lines.append(f"Comfort: {comfort_score:.2f}")
+    if desired_behavior is not None:
+        info_lines.append(f"Action: {desired_behavior}")
     
     y_offset = 30
     for line in info_lines:
@@ -297,6 +305,8 @@ def show_frame(image: np.ndarray, window_name: str = "Friendly Spot",
 def visualize_pipeline_frame(image: np.ndarray, 
                              perception_data=None,
                              person_detection=None,
+                             desired_behavior=None,
+                             comfort_score=None,
                              show: bool = True,
                              save_dir: Optional[str] = None,
                              iteration: Optional[int] = None) -> Optional[int]:
@@ -306,6 +316,8 @@ def visualize_pipeline_frame(image: np.ndarray,
         image: Input frame (PTZ camera image)
         perception_data: Optional PerceptionData results
         person_detection: Optional PersonDetection with bbox/mask/depth (from surround cameras)
+        desired_behavior: Desired robot behavior/action to display
+        comfort_score: Calculated comfort score (0-1)
         show: Display in window
         save_dir: Directory to save frame (None = don't save)
         iteration: Iteration number for filename
@@ -325,7 +337,7 @@ def visualize_pipeline_frame(image: np.ndarray,
     # Draw perception results (face bbox, landmarks, pose, emotion, gesture from PTZ)
     if perception_data is not None:
         distance = perception_data.distance_m if hasattr(perception_data, 'distance_m') else None
-        annotated = draw_perception_results(annotated, perception_data, distance)
+        annotated = draw_perception_results(annotated, perception_data, distance, desired_behavior, comfort_score)
     
     # Save if requested
     if save_dir:

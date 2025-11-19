@@ -470,7 +470,7 @@ class FriendlySpotPipeline:
             ptz_frame = ptz_frames[ptz_source]
             ptz_depth = ptz_depths.get(ptz_source)
             
-            # 7. Create PersonDetection with all info
+            # 7. Create PersonDetection with all info (store PTZ angles for behavior execution)
             person_det = PersonDetection(
                 bbox_xywh=best_detection.bbox_xywh,
                 mask=best_detection.mask,
@@ -483,6 +483,11 @@ class FriendlySpotPipeline:
                 tracked_by_ptz=True,
                 tracking_quality=0.8  # Fixed quality for integrated mode
             )
+            
+            # Store PTZ bearing for behavior execution (attach as custom attribute)
+            person_det.ptz_pan = ptz_pan
+            person_det.ptz_tilt = ptz_tilt
+            logger.debug(f"Stored PTZ bearing: pan={ptz_pan:.1f}°, tilt={ptz_tilt:.1f}°")
             
             return person_det
             
@@ -517,13 +522,20 @@ class FriendlySpotPipeline:
             logger.info(f"Depth fetching: {'enabled' if include_depth else 'disabled'}" + 
                        " (note: PTZ camera may not have depth sensor)")
             logger.debug(f"ImageClient params: source={self.args.ptz_source}, quality=75, include_depth={include_depth}")
-            return create_video_source(
-                'imageclient',
-                robot=self.robot,
-                source_name=self.args.ptz_source,
-                quality=75,
-                include_depth=include_depth
-            )
+            
+            try:
+                return create_video_source(
+                    'imageclient',
+                    robot=self.robot,
+                    source_name=self.args.ptz_source,
+                    quality=75,
+                    include_depth=include_depth
+                )
+            except Exception as e:
+                logger.error(f"Failed to initialize video source: {e}")
+                logger.error("If your robot doesn't have a PTZ camera, the system will use a fallback camera")
+                logger.info("The video source initialization will attempt automatic fallback...")
+                raise
     
     def run(self):
         """Main perception to decision to execution loop."""
@@ -572,7 +584,12 @@ class FriendlySpotPipeline:
                     continue
                 logger.debug(f"[Loop {loop_count}] Perception complete: distance={perception.distance_m:.2f}m, action={perception.current_action}" if perception.distance_m else f"[Loop {loop_count}] Perception complete: distance=N/A, action={perception.current_action}")
                 
-                # Visualize if enabled
+                # 2. DECISION: Compute comfort and select behavior
+                logger.debug(f"[Loop {loop_count}] Computing comfort and behavior...")
+                comfort, behavior = self.comfort_model.predict_behavior(perception)
+                logger.debug(f"[Loop {loop_count}] Decision: comfort={comfort:.2f}, behavior={behavior.value}")
+                
+                # Visualize if enabled (after decision so we can show desired behavior)
                 if self.args.visualize or self.args.save_images:
                     # Use the analyzed frame from perception to ensure alignment
                     frame = perception.frame if hasattr(perception, 'frame') and perception.frame is not None else None
@@ -581,6 +598,8 @@ class FriendlySpotPipeline:
                             frame,
                             perception_data=perception,
                             person_detection=person_detection,
+                            desired_behavior=behavior.value,  # Show the decided behavior
+                            comfort_score=comfort,  # Show the comfort score
                             show=self.args.visualize,
                             save_dir=self.args.save_images,
                             iteration=loop_count
@@ -588,11 +607,6 @@ class FriendlySpotPipeline:
                         if key == ord('q') or key == 27:  # 'q' or ESC
                             logger.info("User requested quit via visualization")
                             break
-                
-                # 2. DECISION: Compute comfort and select behavior
-                logger.debug(f"[Loop {loop_count}] Computing comfort and behavior...")
-                comfort, behavior = self.comfort_model.predict_behavior(perception)
-                logger.debug(f"[Loop {loop_count}] Decision: comfort={comfort:.2f}, behavior={behavior.value}")
                 
                 # Log every 10 iterations to avoid spam
                 if loop_count % 10 == 0:
@@ -611,7 +625,7 @@ class FriendlySpotPipeline:
                 # 3. EXECUTION: Send command to robot (if enabled)
                 if self.executor:
                     logger.debug(f"[Loop {loop_count}] Executing behavior: {behavior.value}")
-                    self.executor.execute_behavior(behavior)
+                    self.executor.execute_behavior(behavior, perception=perception)
                 else:
                     logger.debug(f"[Loop {loop_count}] No executor, skipping behavior execution")
                 

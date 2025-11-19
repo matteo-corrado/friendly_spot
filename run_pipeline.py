@@ -379,6 +379,15 @@ class PerceptionPipeline:
             except Exception as e:
                 logger.warning(f"Failed to update robot action with distance: {e}")
 
+        # Extract PTZ bearing if available from PersonDetection
+        ptz_pan = None
+        ptz_tilt = None
+        if person_detection is not None:
+            if hasattr(person_detection, 'ptz_pan'):
+                ptz_pan = person_detection.ptz_pan
+            if hasattr(person_detection, 'ptz_tilt'):
+                ptz_tilt = person_detection.ptz_tilt
+        
         perception = PerceptionInput(
             current_action=current_action,
             distance_m=distance_m,
@@ -390,6 +399,8 @@ class PerceptionPipeline:
             pose_landmarks=landmarks,  # Already computed above
             emotion_scores=emotion_scores,
             frame=frame,  # Store the analyzed frame for visualization alignment
+            ptz_pan=ptz_pan,  # PTZ bearing for directional movement
+            ptz_tilt=ptz_tilt
         )
         
         # Debug: Print full perception results

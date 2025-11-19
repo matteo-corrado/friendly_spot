@@ -28,12 +28,19 @@ class GestureRecognizer:
         self.max_num_hands = max_num_hands
         self.min_confidence = min_confidence
         
-        # Convert to absolute path and use forward slashes for MediaPipe on Windows
+        # MediaPipe on Windows has broken path resolution - it resolves relative paths
+        # from site-packages instead of CWD. Workaround: load model as bytes
         import os
-        model_path = os.path.abspath(model_path).replace('\\', '/')
         
-        # Instantiate the gesture recognition model
-        base_options = python.BaseOptions(model_asset_path=model_path)
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Gesture model not found at {model_path}")
+        
+        # Read model file into memory
+        with open(model_path, 'rb') as f:
+            model_data = f.read()
+        
+        # Use model_asset_buffer instead of model_asset_path to bypass broken path resolution
+        base_options = python.BaseOptions(model_asset_buffer=model_data)
         options = vision.GestureRecognizerOptions(base_options=base_options)
         options.num_hands = max_num_hands
         options.min_hand_detection_confidence = min_confidence

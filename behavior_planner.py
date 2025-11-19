@@ -76,7 +76,7 @@ class ComfortHyperParameters:
             "running": -0.35,
             "walking": -0.08,
             "standing": 0.05,
-            "arms_crossed": -0.22,
+            "arms_crossed": -0.1,
             "waving": 0.12,
             "raising_hand": 0.08,
             "clapping": 0.06,
@@ -88,15 +88,13 @@ class ComfortHyperParameters:
     gesture_weights: Dict[str, float] = field(
         default_factory=lambda: {
             # Positive/welcoming gestures
-            "thumb_up": 0.1,          # MediaPipe: Thumb_Up
-            "thumbs_up": 0.1,         # Alias for compatibility
-            "iloveyou": 0.12,         # MediaPipe: ILoveYou (strong positive)
+            "thumb_up": 0.2,          # MediaPipe: Thumb_Up
+            "iloveyou": 0.3,         # MediaPipe: ILoveYou (strong positive)
             "victory": 0.06,          # MediaPipe: Victory (peace sign)
             "open_palm": 0.05,        # MediaPipe: Open_Palm (neutral/welcoming)
             # Negative/cautious gestures
-            "thumb_down": -0.2,       # MediaPipe: Thumb_Down (negative feedback)
-            "thumbs_down": -0.2,      # Alias for compatibility
-            "closed_fist": -0.18,     # MediaPipe: Closed_Fist (aggressive)
+            "thumb_down": -0.25,       # MediaPipe: Thumb_Down (negative feedback)
+            "closed_fist": -0.15,     # MediaPipe: Closed_Fist (aggressive)
             "pointing_up": -0.05,     # MediaPipe: Pointing_Up (directive/commanding)
             # Neutral states
             "none": 0.0,              # MediaPipe: None (hands visible, no gesture)
@@ -107,7 +105,7 @@ class ComfortHyperParameters:
     emotion_weights: Dict[str, float] = field(
         default_factory=lambda: {
             # Positive emotions (DeepFace recognized)
-            "happy": 0.18,           # DeepFace: happy - strong positive signal
+            "happy": 0.2,           # DeepFace: happy - strong positive signal
             "surprise": 0.06,        # DeepFace: surprise - mild positive (neutral-to-positive)
             # Neutral
             "neutral": 0.0,          # DeepFace: neutral - baseline
@@ -115,7 +113,7 @@ class ComfortHyperParameters:
             "sad": -0.15,            # DeepFace: sad - moderate negative
             "disgust": -0.22,        # DeepFace: disgust - strong negative
             "fear": -0.27,           # DeepFace: fear - very strong negative
-            "angry": -0.3,           # DeepFace: angry - strongest negative
+            "angry": -0.4,           # DeepFace: angry - strongest negative
             # Fallback
             "default": 0.0,          # Unknown emotions default to neutral
         }
@@ -147,7 +145,7 @@ class ComfortModel:
         score = self.hp.base_score
         score += self._lookup(perception.current_action, self.hp.action_weights)
         score += self._lookup(perception.pose_label, self.hp.pose_weights)
-        score += self._lookup(perception.gesture_label, self.hp.gesture_weights)
+        score += self._score_gesture(perception.gesture_label, self.hp.gesture_weights)
         score += self._lookup(perception.emotion_label, self.hp.emotion_weights)
         score += self._score_distance(perception.distance_m)
         score += self._score_familiarity(perception.face_label)
@@ -204,6 +202,48 @@ class ComfortModel:
             return self.hp.unfamiliar_penalty
 
         return self.hp.familiarity_bonus
+
+    def _score_gesture(self, gesture_label: Optional[str], gesture_weights: Dict[str, float]) -> float:
+        """
+        Score gestures with special handling for bilateral identical gestures.
+        If both hands show the same gesture (e.g., "Left: Thumb_Up, Right: Thumb_Up"),
+        double the comfort contribution.
+        """
+        if not gesture_label:
+            return gesture_weights.get("default", 0.0)
+
+        # Check if it's a bilateral gesture (both hands with same gesture)
+        if ", " in gesture_label:
+            parts = gesture_label.split(", ")
+            if len(parts) == 2:
+                # Extract gesture names from "Left: Gesture" and "Right: Gesture"
+                left_parts = parts[0].split(": ")
+                right_parts = parts[1].split(": ")
+                
+                if len(left_parts) == 2 and len(right_parts) == 2:
+                    left_gesture = left_parts[1].lower().replace(" ", "_")
+                    right_gesture = right_parts[1].lower().replace(" ", "_")
+                    
+                    # If both hands show same gesture, double the score
+                    if left_gesture == right_gesture:
+                        base_score = gesture_weights.get(left_gesture, gesture_weights.get("default", 0.0))
+                        return base_score * 2.0
+                    else:
+                        # Different gestures on each hand - use the lowest (most negative) score
+                        left_score = gesture_weights.get(left_gesture, gesture_weights.get("default", 0.0))
+                        right_score = gesture_weights.get(right_gesture, gesture_weights.get("default", 0.0))
+                        return min(left_score, right_score)
+
+        # Single hand gesture - extract gesture name from "Hand: Gesture" format
+        gesture_lower = gesture_label.lower()
+        if ": " in gesture_lower:
+            parts = gesture_lower.split(": ")
+            if len(parts) == 2:
+                gesture_name = parts[1].replace(" ", "_")
+                return gesture_weights.get(gesture_name, gesture_weights.get("default", 0.0))
+
+        # Fallback to standard lookup for other formats
+        return gesture_weights.get(gesture_lower, gesture_weights.get("default", 0.0))
 
     @staticmethod
     def _lookup(label: Optional[str], table: Dict[str, float]) -> float:

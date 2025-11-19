@@ -95,10 +95,8 @@ class PerceptionPipeline:
             pass
         self.hands = mp_hands.Hands(static_image_mode=False, max_num_hands=2, min_detection_confidence=0.4)
         
-        # Initialize gesture recognizer
-        gesture_model_path = os.path.abspath(os.path.join(BASE, "Facial Recognition", "gesture_recognizer.task"))
-        logger.info(f"Gesture model path: {gesture_model_path}")
-        logger.info(f"Model file exists: {os.path.exists(gesture_model_path)}")
+        # Initialize gesture recognizer (loads model as bytes to avoid Windows path issues)
+        gesture_model_path = os.path.join(BASE, "Facial Recognition", "gesture_recognizer.task")
         try:
             self.gesture = GestureRecognizer(model_path=gesture_model_path)
         except Exception as e:

@@ -1,3 +1,11 @@
+# Authors: Thor Lemke, Sally Hyun Hahm, Matteo Corrado
+# Last Update: 11/17/2025
+# Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li
+# Purpose: PTZ camera command helpers for absolute position control with validation,
+# range clamping, and dry-run mode for testing
+# Acknowledgements: Boston Dynamics Spot SDK PtzClient API documentation,
+# SDK ptz_pb2 for PTZ command structure
+
 """PTZ command helpers.
 
 Functions:

@@ -432,11 +432,50 @@ WAIT_KEY_MS = 1                  # Non-blocking key check
   - `create_grid_layout()`: Arrange 5 cameras in 3x2 grid (640x480 cells, 1920px total width)
   - `show_detections_grid()`: Display interactive window with stats panel and keyboard controls
   - `save_annotated_frames()`: Save debug snapshots to disk
+- **`ptz_stream.py`** - **[NEW]** WebRTC real-time video streaming from PTZ camera (see `PTZ_STREAMING_README.md`):
+  - `PtzStream`: High-level streaming manager with thread-safe frame queue
+  - `PtzStreamConfig`: Stream configuration (bitrate, buffer size, timeout)
+  - Independent module for facial recognition / emotion detection integration
+- **`ptz_webrtc_client.py`** - **[NEW]** Low-level WebRTC client for Spot CAM:
+  - `SpotPtzWebRTCClient`: SDP negotiation and RTCPeerConnection management
+  - `SpotPtzVideoTrack`: Video frame queuing from WebRTC stream
+- **`test_ptz_stream.py`** - **[NEW]** Standalone PTZ streaming test utility:
+  - Command-line interface for testing streams
+  - Video recording to MP4
+  - Frame display and statistics
 - `test_yolo_model.py` - Verify YOLO model loads and show available models/classes.
 - `test_yolo_webcam.py` - Benchmark YOLO models on laptop webcam with GPU/CPU performance metrics.
 
+### PTZ WebRTC Streaming Module
+
+For real-time video streaming from the PTZ camera (e.g., for facial recognition downstream), see **[PTZ_STREAMING_README.md](PTZ_STREAMING_README.md)** for complete documentation.
+
+**Quick Start:**
+```powershell
+# Install WebRTC dependencies
+pip install -r requirements_webrtc.txt
+
+# Test PTZ streaming (10 seconds)
+python -m people_observer.test_ptz_stream ROBOT_IP --duration 10
+
+# Save stream to video
+python -m people_observer.test_ptz_stream ROBOT_IP --duration 30 --save-video ptz.mp4
+```
+
+**Features:**
+- ✅ Real-time H.264 video stream from PTZ camera
+- ✅ Independent of person detection pipeline
+- ✅ Thread-safe frame queue for downstream processing
+- ✅ Manual start/stop control
+- 🚧 TODO: Auto-start when person detected (integration hooks in place)
+
 ## Requirements
 Install the Boston Dynamics Spot SDK wheels first from the sibling `spot-sdk/prebuilt` directory in this workspace (v5.0.1.2), then the Python dependencies in `requirements.txt`.
+
+**Optional**: For PTZ WebRTC streaming, install additional dependencies:
+```powershell
+pip install -r requirements_webrtc.txt  # aiortc, av for video streaming
+```
 
 **Authentication**: Your venv `Activate.ps1` supplies credentials/tokens; **do not include user/password on the CLI**. Scripts that rely on `bosdyn.client.util.authenticate` will use your stored token. Avoid committing secrets.
 

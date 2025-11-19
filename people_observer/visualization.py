@@ -1,3 +1,12 @@
+# Authors: Thor Lemke, Sally Hyun Hahm, Matteo Corrado
+# Last Update: 11/18/2025
+# Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li
+# Purpose: Visualization helpers for displaying detections with bounding boxes, depth annotations,
+# image rotation correction, grid layouts, and frame saving with RGB and colorized depth views
+# Acknowledgements: OpenCV documentation for drawing functions and image rotation,
+# Boston Dynamics SDK get_depth_plus_visual_image.py for depth colorization patterns,
+# Claude for rotation coordinate transforms and grid layout design
+
 """Visualization helpers for displaying detections on camera images.
 
 Functions:

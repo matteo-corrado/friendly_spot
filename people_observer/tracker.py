@@ -1,3 +1,11 @@
+# Authors: Thor Lemke, Sally Hyun Hahm, Matteo Corrado
+# Last Update: 11/18/2025
+# Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li
+# Purpose: Main detection and tracking loop that fetches fisheye camera frames, runs YOLO detection,
+# computes depth-based or area-based prioritization, calculates PTZ angles, and commands tracking
+# Acknowledgements: Boston Dynamics Spot SDK for image acquisition and time sync patterns,
+# Ultralytics YOLO for person detection, Claude for depth integration and prioritization logic
+
 """Main orchestrator: frames -> detections -> selection -> target -> PTZ.
 
 Modes

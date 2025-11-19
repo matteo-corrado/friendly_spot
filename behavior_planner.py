@@ -71,11 +71,13 @@ class ComfortHyperParameters:
     calm_down_bonus: float = 0.06
     action_weights: Dict[str, float] = field(
         default_factory=lambda: {
-            "moving": -0.04,
+            "moving": -0.1,
             "waiting": 0.03,
             "interacting": 0.05,
             "searching": -0.02,
             "idle": 0.0,
+            "sit": 0.08,
+            "stopped": 0.1,
             "default": 0.0,
         }
     )

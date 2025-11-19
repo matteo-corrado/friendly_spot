@@ -205,13 +205,34 @@ class PerceptionPipeline:
         landmarks, results = self.pose.extract_landmarks(frame)
         if landmarks is not None:
             pose_label = self.pose.detect_action(landmarks)
-            current_action = pose_label  # TODO: implement spot's current action from robot state
+            # Get robot's current action from robot state (if robot available)
+            logger.debug(f"Checking robot availability: robot={self.robot is not None}")
+            if self.robot is not None:
+                try:
+                    from robot_action_monitor import RobotActionMonitor
+                    # Create monitor if not exists (lazy initialization)
+                    if not hasattr(self, '_action_monitor'):
+                        logger.info("Creating RobotActionMonitor (lazy init)...")
+                        self._action_monitor = RobotActionMonitor(self.robot)
+                        logger.info("RobotActionMonitor initialized in PerceptionPipeline")
+                    # Note: distance will be computed below, pass None for now
+                    logger.debug("Calling get_current_action from monitor...")
+                    current_action = self._action_monitor.get_current_action(person_distance=None)
+                    logger.info(f"Robot current_action from monitor: {current_action}")
+                except Exception as e:
+                    logger.error(f"Failed to get robot action from monitor: {e}", exc_info=True)
+                    current_action = "idle"  # Default fallback
+            else:
+                # No robot connection, use default
+                current_action = "idle"
+                logger.debug("No robot connected, current_action defaulting to 'idle'")
             
             # Calculate distance using depth if available
-            if person_detection is not None and person_detection.has_depth():
-                # Use pre-computed distance from people_observer (already validated)
+            # Priority: 1) person_detection.distance_m, 2) depth_frame, 3) heuristic
+            if person_detection is not None and person_detection.distance_m is not None:
+                # Use pre-computed distance from integrated detector (already validated)
                 distance_m = person_detection.distance_m
-                logger.debug(f"[Tier 1] Using pre-computed distance: {distance_m:.2f}m (source: {person_detection.depth_source})")
+                logger.info(f"[Tier 1] Using person_detection distance: {distance_m:.2f}m (source: {person_detection.depth_source}, validated: {person_detection.depth_validated})")
             elif depth_frame is not None:
                 # Compute distance from depth frame
                 logger.debug("[Tier 2] Attempting depth extraction from depth_frame")
@@ -259,9 +280,35 @@ class PerceptionPipeline:
                 distance_m = estimate_distance_m(landmarks, frame_h)
                 logger.debug(f"[Tier 3] Legacy heuristic distance: {distance_m:.2f}m" if distance_m else "[Tier 3] No distance available")
         else:
+            # No pose landmarks detected
             pose_label = "unknown"
-            current_action = "unknown"
-            distance_m = None
+            logger.warning("No pose landmarks detected in frame")
+            
+            # Still try to get robot action (doesn't depend on pose)
+            logger.debug(f"No pose - checking robot availability: robot={self.robot is not None}")
+            if self.robot is not None:
+                try:
+                    from robot_action_monitor import RobotActionMonitor
+                    if not hasattr(self, '_action_monitor'):
+                        logger.info("Creating RobotActionMonitor (lazy init, no pose path)...")
+                        self._action_monitor = RobotActionMonitor(self.robot)
+                        logger.info("RobotActionMonitor initialized (no pose path)")
+                    current_action = self._action_monitor.get_current_action(person_distance=None)
+                    logger.info(f"Robot current_action (no pose): {current_action}")
+                except Exception as e:
+                    logger.error(f"Failed to get robot action (no pose): {e}", exc_info=True)
+                    current_action = "idle"
+            else:
+                current_action = "idle"
+                logger.debug("No robot connected, current_action='idle' (no pose path)")
+            
+            # Try to use person_detection distance even without pose
+            if person_detection is not None and person_detection.distance_m is not None:
+                distance_m = person_detection.distance_m
+                logger.info(f"Using person_detection distance (no pose): {distance_m:.2f}m")
+            else:
+                distance_m = None
+                logger.warning("No distance available (no pose, no person_detection distance)")
 
         # Gesture
         if self.gesture is not None:
@@ -324,6 +371,14 @@ class PerceptionPipeline:
             except Exception:
                 emotion_label = 'neutral'
 
+        # Update robot action with computed distance for more accurate classification
+        if self.robot is not None and hasattr(self, '_action_monitor') and distance_m is not None:
+            try:
+                current_action = self._action_monitor.get_current_action(person_distance=distance_m)
+                logger.debug(f"Updated robot current_action with distance={distance_m:.2f}m: {current_action}")
+            except Exception as e:
+                logger.warning(f"Failed to update robot action with distance: {e}")
+
         perception = PerceptionInput(
             current_action=current_action,
             distance_m=distance_m,
@@ -336,6 +391,24 @@ class PerceptionPipeline:
             emotion_scores=emotion_scores,
             frame=frame,  # Store the analyzed frame for visualization alignment
         )
+        
+        # Debug: Print full perception results
+        logger.debug("="*60)
+        logger.debug("PERCEPTION RESULTS:")
+        logger.debug(f"  Robot Action: {current_action}")
+        logger.debug(f"  Distance: {distance_m:.2f}m" if distance_m else "  Distance: None")
+        logger.debug(f"  Face: {face_label}")
+        logger.debug(f"  Emotion: {emotion_label}")
+        logger.debug(f"  Pose: {pose_label}")
+        logger.debug(f"  Gesture: {gesture_label}")
+        logger.debug(f"  Face BBox: {face_bbox}")
+        logger.debug(f"  Pose Landmarks: {landmarks.shape if landmarks is not None else None}")
+        if emotion_scores:
+            logger.debug(f"  Emotion Scores: {emotion_scores}")
+        logger.debug(f"  Frame Shape: {frame.shape}")
+        logger.debug(f"  Source: {'person_detection' if person_detection else 'video_source'}")
+        logger.debug("="*60)
+        
         return perception
 
     def cleanup(self):

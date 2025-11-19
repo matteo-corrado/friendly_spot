@@ -52,6 +52,7 @@ from video_sources import create_video_source
 from run_pipeline import PerceptionPipeline
 from behavior_planner import ComfortModel
 from behavior_executor import BehaviorExecutor
+from robot_action_monitor import RobotActionMonitor
 from observer_bridge import ObserverBridge, ObserverConfig
 from unified_visualization import visualize_pipeline_frame, close_all_windows
 
@@ -78,6 +79,7 @@ class FriendlySpotPipeline:
         self.pipeline = None
         self.comfort_model = None
         self.executor = None
+        self.action_monitor = None  # Robot action state monitor
         self.observer_bridge = None  # Optional threaded observer
         self.integrated_detector = None  # Integrated YOLO detector
         self.running = False
@@ -127,6 +129,12 @@ class FriendlySpotPipeline:
         logger.info("Initializing comfort model...")
         self.comfort_model = ComfortModel()
         logger.debug("Comfort model initialized")
+        
+        # Initialize robot action monitor (if robot connected)
+        if self.robot:
+            logger.info("Initializing robot action monitor...")
+            self.action_monitor = RobotActionMonitor(self.robot)
+            logger.debug("Robot action monitor initialized")
         
         # Initialize behavior executor (only if robot connected and execution enabled)
         if self.robot and not self.args.no_execute:
@@ -552,7 +560,7 @@ class FriendlySpotPipeline:
                     logger.warning("Failed to read perception (no frame)")
                     time.sleep(0.1)
                     continue
-                logger.debug(f"[Loop {loop_count}] Perception complete: distance={perception.distance_m:.2f}m" if perception.distance_m else f"[Loop {loop_count}] Perception complete: distance=N/A")
+                logger.debug(f"[Loop {loop_count}] Perception complete: distance={perception.distance_m:.2f}m, action={perception.current_action}" if perception.distance_m else f"[Loop {loop_count}] Perception complete: distance=N/A, action={perception.current_action}")
                 
                 # Visualize if enabled
                 if self.args.visualize or self.args.save_images:

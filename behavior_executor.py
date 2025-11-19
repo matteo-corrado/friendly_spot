@@ -19,6 +19,7 @@ from typing import Optional
 
 from bosdyn.client import Robot
 from bosdyn.client.robot_command import RobotCommandBuilder, blocking_stand
+from bosdyn.client.lease import ResourceAlreadyClaimedError
 
 from behavior_planner import BehaviorLabel
 from robot_io import RobotClients, ManagedLease, ManagedEstop
@@ -101,6 +102,11 @@ class BehaviorExecutor:
                 
                 return success
             
+        except ResourceAlreadyClaimedError as e:
+            logger.error(f"Lease already claimed by another client: {e}")
+            logger.error("Run with --no-execute to disable behavior execution, or ensure no other clients are using the robot")
+            logger.error("You may need to manually return the lease using the robot's tablet or admin console")
+            return False
         except Exception as e:
             logger.error(f"Failed to execute behavior {behavior.value}: {e}")
             return False

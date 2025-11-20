@@ -22,12 +22,14 @@ import cv2
 import numpy as np
 
 from ..perception.yolo_detector import Detection
-# Import from unified visualization
 import sys
 from pathlib import Path
-parent_dir = Path(__file__).parent.parent
-if str(parent_dir) not in sys.path:
-    sys.path.insert(0, str(parent_dir))
+
+# Import unified_visualization from people_observer package
+parent_parent_dir = Path(__file__).parent.parent.parent
+people_observer_path = parent_parent_dir / "people_observer"
+if str(people_observer_path) not in sys.path:
+    sys.path.insert(0, str(people_observer_path))
 from unified_visualization import create_depth_colormap, draw_detection_with_mask
 
 logger = logging.getLogger(__name__)
@@ -334,7 +336,7 @@ def save_annotated_frames(frames_dict: Dict[str, np.ndarray],
             if success and os.path.exists(filepath):
                 saved_count += 1
                 file_size = os.path.getsize(filepath)
-                logger.debug(f"  ✓ {filename} ({file_size:,} bytes)")
+                logger.debug(f"  [OK] {filename} ({file_size:,} bytes)")
             else:
                 failed_files.append(filename)
                 logger.error(f"  Failed to write {filename}")

@@ -130,10 +130,6 @@ def pixel_to_ptz_angles_transform(
     5. Accounts for PTZ mounting offset (if PTZ frame available in snapshot)
     6. Converts from body frame convention to PTZ convention
     
-    CRITICAL FIX: Unlike previous implementation, this properly accounts for:
-    - PTZ frame's own offset/rotation in the transform tree
-    - Timestamp consistency between image capture and PTZ state
-    - Vision frame as stable world reference (not odometry-based)
     
     Args:
         pixel_x, pixel_y: Detection center in pixel coordinates
@@ -168,15 +164,13 @@ def pixel_to_ptz_angles_transform(
     logger.info(f"[TRANSFORM] Camera={camera_frame}, Model={model}, Original pixel=({pixel_x:.0f}, {pixel_y:.0f})")
     logger.info(f"[TRANSFORM] Image timestamp: {shot.acquisition_time.seconds}.{shot.acquisition_time.nanos//1000000:03d}")
     
-    # Step 1: Images are now kept in original camera frame (no scipy rotation)
+    # Step 1: Images are now kept in original camera frame 
     # Pixel coordinates directly correspond to camera intrinsics
-    logger.info(f"[TRANSFORM] Working in original camera frame (images not rotated)")
+    logger.info(f"[TRANSFORM] Working in original camera frame")
     
     # Step 2: Unproject pixel to 3D ray in camera frame
     try:
-        ray_cam_x, ray_cam_y, ray_cam_z = cameras.pixel_to_camera_ray(
-            pixel_x, pixel_y, intrinsics
-        )
+        ray_cam_x, ray_cam_y, ray_cam_z = cameras.pixel_to_camera_ray(pixel_x, pixel_y, intrinsics)
         logger.info(f"[TRANSFORM] Camera-frame ray=[{ray_cam_x:.3f}, {ray_cam_y:.3f}, {ray_cam_z:.3f}]")
     except Exception as e:
         raise RuntimeError(f"Failed to unproject pixel using {model} model: {e}")

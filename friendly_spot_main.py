@@ -1,9 +1,10 @@
 # Authors: Thor Lemke, Sally Hyun Hahm, Matteo Corrado
-# Last Update: 11/18/2025
+# Last Update: 11/19/2025
 # Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li
 # Purpose: Main entry point for integrated Friendly Spot pipeline combining perception,
 # behavior planning, and robot command execution with PTZ camera streaming.
-# Acknowledgements: Boston Dynamics Spot SDK for robot connection patterns
+# Acknowledgements: Boston Dynamics Spot SDK for robot connection patterns,
+# Claude for pipeline integration and optimization
 
 """Friendly Spot Main Pipeline
 
@@ -322,7 +323,7 @@ class FriendlySpotPipeline:
         from people_observer.tracker import estimate_detection_depth_m
         from people_observer.ptz_control import set_ptz
         from people_observer import geometry,cameras
-        from detection_types import PersonDetection
+        from src.perception.detection_types import PersonDetection
         import time
         import cv2
         import os

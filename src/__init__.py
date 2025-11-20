@@ -1,3 +1,10 @@
+# Authors: Thor Lemke, Sally Hyun Hahm, Matteo Corrado
+# Last Update: 11/19/2025
+# Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li
+# Purpose: Top-level package initialization for modular friendly_spot architecture organizing
+# perception, behavior, robot control, video sources, and visualization into coherent subsystems
+# Acknowledgements: Claude for modular architecture design and package structure
+
 """Friendly Spot Source Code.
 
 Modular architecture for social robot behavior based on human perception.

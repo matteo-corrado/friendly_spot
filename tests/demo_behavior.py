@@ -1,3 +1,9 @@
+# Authors: Thor Lemke, Sally Hyun Hahm, Matteo Corrado
+# Last Update: 11/19/2025
+# Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li
+# Purpose: Command-line demo showcasing comfort model mapping from perception inputs to Spot behaviors
+# Acknowledgements: Claude for demo implementation
+
 """
 Command-line helper to demonstrate how the comfort model maps perception inputs
 to Spot behaviors.

@@ -1,3 +1,11 @@
+# Authors: Thor Lemke, Sally Hyun Hahm, Matteo Corrado
+# Last Update: 11/19/2025
+# Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li
+# Purpose: Streamlined perception pipeline integrating pose, face, emotion, and gesture detection
+# with optimized single-pass face recognition and real-time processing at 7-8 Hz
+# Acknowledgements: OpenCV for face detection, DeepFace for emotion recognition,
+# MediaPipe for pose estimation, Claude for pipeline optimization and streamlined architecture
+
 """Streamlined perception pipeline using existing recognition modules efficiently.
 
 Integrates pose, face, emotion, and gesture detection with minimal overhead.
@@ -14,6 +22,10 @@ from typing import Optional
 
 from ..video.sources import VideoSource, create_video_source
 from .detection_types import PersonDetection, validate_depth_against_heuristic, estimate_distance_from_bbox
+
+#L1_BINDING_THRESHOLD = 30
+#MIN_SIMILAR_FRAMES = 16
+#RETRAIN_TERMINAL_COUNT = 30
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +82,7 @@ class PerceptionPipeline:
             video_source: Video source (webcam, ImageClient, WebRTC)
             robot: Optional Robot instance for action monitoring
         """
+
         self.video_source = video_source
         self.robot = robot
         
@@ -79,12 +92,16 @@ class PerceptionPipeline:
         # Initialize recognition modules
         self.pose = PoseAnalyzer()
         self.face = FaceRecognizer()
+
+        #self.retrainCount = 1
+        #self.trackFacesAppearances = {}
+        #self.imageCountTracker = []
         
         # Train face recognizer from dataset
-        image_dir = getattr(face_mod, "IMAGE_DIRECTORY", "dataset")
+        self.image_dir = getattr(face_mod, "IMAGE_DIRECTORY", "dataset")
         try:
-            self.face.initialize_facial_data(image_dir)
-            self.face.train_from_directory(image_dir)
+            self.imageCountTracker = self.face.initialize_facial_data(self.image_dir)
+            self.face.train_from_directory(self.image_dir)
         except Exception as e:
             logger.warning(f"Face training skipped: {e}")
         
@@ -185,7 +202,7 @@ class PerceptionPipeline:
         if self.robot:
             try:
                 if self._action_monitor is None:
-                    from robot_action_monitor import RobotActionMonitor
+                    from ..robot.action_monitor import RobotActionMonitor
                     self._action_monitor = RobotActionMonitor(self.robot)
                 current_action = self._action_monitor.get_current_action(distance_m)
             except Exception as e:
@@ -232,6 +249,7 @@ class PerceptionPipeline:
         Returns:
             tuple: (face_label, emotion_label, emotion_scores, face_bbox)
         """
+
         # Detect faces using cascade from FaceRecognizer
         faces = self.face.face_cascade.detectMultiScale(
             gray,
@@ -259,6 +277,119 @@ class PerceptionPipeline:
                     face_label = self.face.label_names.get(label, "unknown")
             except Exception:
                 pass  # Keep as "unknown"
+
+        # Add the most confident image to directory for appropraite person directory, whether new person or existing person
+        imagePath = ""
+        if face_label == "Unknown" or face_label == "unknown":
+            imagePath = f"{self.image_dir}/person{len(self.imageCountTracker)}"
+            os.mkdir(imagePath)
+            imagePath = imagePath + "/0.jpg"
+            self.imageCountTracker.append(1)
+        else:
+            personCount = int(face_label[-1])
+            imagePath = f"{self.image_dir}/person{personCount}/{self.imageCountTracker[personCount]}.jpg"
+            self.imageCountTracker[personCount] += 1
+                        
+        # Reporte that new image is being saved, and save it to the paths defined above
+        print(imagePath)
+        cv2.imwrite(imagePath, frame[y:y+h, x:x+h])
+                
+        # Re-train the model, and reset parameters for faces seen every cycle and number of frames before re-training
+        self.face.train_from_directory(self.image_dir)
+
+        # # For names that are recognized, store position, confidence, and image in array assigned to name as key in dictionary
+        # # This includes names of "Unknown"   
+        #     if face_label not in self.trackFacesAppearances:
+        #         self.trackFacesAppearances[face_label] = []
+        #     self.trackFacesAppearances[face_label].append(((x, y, w, h), confidence, frame[y:y+h, x:x+w]))
+
+        # # At the 30th frame, time to retrain
+        # if self.retrainCount == RETRAIN_TERMINAL_COUNT:
+                  
+        #     # Loop over all the names for faces found within the last second  
+        #     for nameFound in self.trackFacesAppearances:
+                
+        #         frames_used = []
+                    
+        #         # Loop over all the images found for that face
+        #         for i in range(len(self.trackFacesAppearances[nameFound])):
+                    
+        #             # Include current image as similar to itself
+        #             countSimilarFrames = 1
+                        
+        #             # If face was already recognized as a match, can skip to the next frame
+        #             if i in frames_used:
+        #                 continue
+                        
+        #             # Store the current face and frame num that the face came from
+        #             currentFace = self.trackFacesAppearances[nameFound][i]   
+                        
+        #             frames_might_use = [i]
+        #             currentValues = currentFace[0]
+                        
+        #             # Loop over all images on name to see if enough to create a match
+        #             # Must go over all images, as threshold distance in or out may vary based on current face parameters
+        #             for j in range(len(self.trackFacesAppearances[nameFound])):
+                            
+        #                 # Don't compare current face to current face
+        #                 if i == j:
+        #                     continue
+                            
+        #                 # Don't use images already used in a match found
+        #                 if j in frames_used:
+        #                     continue
+                            
+        #                 comparisonFace = self.trackFacesAppearances[nameFound][j]
+        #                 comparisonValues = comparisonFace[0]
+                            
+        #                 # Calculate L1 distance between two faces, as x, y, w, and h, and compare to threshold to see if exstimated to be same face
+        #                 # Naive approach, would even see improvement based on updating comparison values through consecutive images, allowing for face motion through the one second
+        #                 # However, based on the assumption of the scene we are designing for, there is relatively little motion for people, so not considering motion can work for the purposes of this project
+        #                 distance = abs(currentValues[0] - comparisonValues[0]) + abs(currentValues[1] - comparisonValues[1]) + abs(currentValues[2] - comparisonValues[2]) + abs(currentValues[3] - comparisonValues[3])
+        #                 if distance <= L1_BINDING_THRESHOLD:
+        #                         countSimilarFrames += 1
+        #                         frames_might_use.append(j)
+                      
+        #             # If meet threshold of number of faces estimated to be the same, add image to the dataset for recognition
+        #             if countSimilarFrames >= MIN_SIMILAR_FRAMES:
+                        
+        #                 # Add all frames that were matched to set of used frames, so as to not use again for comparisons
+        #                 frames_used.extend(frames_might_use)
+                        
+        #                 # Find most confident image of face (smallest confidence value) from set of "matching" images
+        #                 most_index = 0
+        #                 most_confidence = 100
+        #                 for index in frames_might_use:
+        #                     confidence = self.trackFacesAppearances[nameFound][index][1]
+        #                     if confidence < most_confidence:
+        #                         most_index = index
+        #                         most_confidence = confidence
+                                
+        #                 cropped_image = self.trackFacesAppearances[nameFound][most_index][2]
+                        
+        #                 # Add the most confident image to directory for appropraite person directory, whether new person or existing person
+        #                 imagePath = ""
+        #                 if nameFound == "Unknown":
+        #                     imagePath = f"{self.image_dir}/person{len(self.imageCountTracker)}"
+        #                     os.mkdir(imagePath)
+        #                     imagePath = imagePath + "/0.jpg"
+        #                     self.imageCountTracker.append(1)
+        #                 else:
+        #                     personCount = int(nameFound[-1])
+        #                     imagePath = f"{self.image_dir}/person{personCount}/{self.imageCountTracker[personCount]}.jpg"
+        #                     self.imageCountTracker[personCount] += 1
+                        
+        #                 # Reporte that new image is being saved, and save it to the paths defined above
+        #                 print(imagePath)
+        #                 cv2.imwrite(imagePath, cropped_image)
+                
+        #     # Re-train the model, and reset parameters for faces seen every cycle and number of frames before re-training
+        #     self.face.train_from_directory(self.image_dir)
+        #     self.retrainCount = 0
+        #     self.trackFacesAppearances = {}
+        
+        # self.retrainCount += 1
+            
         
         # Emotion detection (on RGB ROI, same bbox)
         emotion_label = "neutral"

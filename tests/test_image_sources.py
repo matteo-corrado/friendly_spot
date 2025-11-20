@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+# Authors: Thor Lemke, Sally Hyun Hahm, Matteo Corrado
+# Last Update: 11/19/2025
+# Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li
+# Purpose: Image source discovery test listing all available cameras from standard and Spot CAM services
+# Acknowledgements: Boston Dynamics Spot SDK ImageClient, Claude for test implementation
+
 """Test script to list all available image sources from robot.
 
 This script connects to the robot and lists all available image sources
@@ -162,12 +168,12 @@ def main():
     print("="*80)
     
     if ptz_sources:
-        print("\n✓ PTZ/Spot CAM sources found in image service:")
+        print("\n[OK] PTZ/Spot CAM sources found in image service:")
         print("  Update SpotPTZImageClient default source_name to one of:")
         for s in ptz_sources[:3]:  # Show top 3
             print(f"    - '{s}'")
     else:
-        print("\n✗ No PTZ sources found in image service")
+        print("\n[X] No PTZ sources found in image service")
         print("  Options:")
         print("    1. Use WebRTC streaming (ptz_stream.py already implements this)")
         print("    2. Set compositor screen and capture from composite stream")

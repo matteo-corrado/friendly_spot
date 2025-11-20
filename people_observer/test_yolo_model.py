@@ -1,3 +1,9 @@
+# Authors: Thor Lemke, Sally Hyun Hahm, Matteo Corrado
+# Last Update: 11/19/2025
+# Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li
+# Purpose: YOLO model loading verification test ensuring all model variants initialize correctly
+# Acknowledgements: Ultralytics YOLO, Claude for test implementation
+
 """Quick test to verify YOLO model loads correctly."""
 import sys
 from pathlib import Path

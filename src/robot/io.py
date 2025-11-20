@@ -1,3 +1,11 @@
+# Authors: Thor Lemke, Sally Hyun Hahm, Matteo Corrado
+# Last Update: 11/19/2025
+# Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li
+# Purpose: Unified robot I/O module consolidating Spot SDK operations including robot connection,
+# authentication, client management, and command utilities with comprehensive error handling
+# Acknowledgements: Boston Dynamics Spot SDK (hello_spot, estop, wasd examples) for connection patterns,
+# Claude for client management architecture and error handling design
+
 """Unified robot I/O module for Spot SDK operations.
 
 Consolidates robot connection, authentication, client management, and command

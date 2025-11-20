@@ -1,3 +1,9 @@
+# Authors: Thor Lemke, Sally Hyun Hahm, Matteo Corrado
+# Last Update: 11/19/2025
+# Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li
+# Purpose: Perception module package initialization exposing pipeline, detection types, and configuration
+# Acknowledgements: Claude for module organization
+
 """Perception pipeline module.
 
 Integrates pose, face, emotion, gesture detection with person tracking.

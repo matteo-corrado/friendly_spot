@@ -1,3 +1,10 @@
+# Authors: Thor Lemke, Sally Hyun Hahm, Matteo Corrado
+# Last Update: 11/19/2025
+# Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li
+# Purpose: Unified visualization overlay providing consistent rendering across modules with depth masks,
+# detection bounding boxes, pose landmarks, and perception result annotations
+# Acknowledgements: OpenCV for drawing functions, Claude for unified visualization design
+
 """Unified visualization for friendly_spot and people_observer.
 
 Provides consistent visualization across:

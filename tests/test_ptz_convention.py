@@ -1,3 +1,9 @@
+# Authors: Thor Lemke, Sally Hyun Hahm, Matteo Corrado
+# Last Update: 11/19/2025
+# Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li
+# Purpose: PTZ pan convention verification test commanding cardinal directions to validate geometry
+# Acknowledgements: Boston Dynamics Spot SDK PtzClient, Claude for test design
+
 """Test PTZ pan convention to verify geometry assumptions.
 
 This script commands the PTZ to 4 cardinal directions and waits for user confirmation
@@ -86,7 +92,7 @@ def test_ptz_convention(hostname: str):
         try:
             # Command PTZ position with offset correction
             ptz_client.set_ptz_position(ptz_desc, ptz_command_deg, tilt, zoom)
-            print("    ✓ Command sent successfully")
+            print("    [OK] Command sent successfully")
             
             # Wait for PTZ to move
             time.sleep(2.0)
@@ -101,9 +107,9 @@ def test_ptz_convention(hostname: str):
             response = input(f"\n    Does PTZ point {expected_desc}? (y/n/skip): ").strip().lower()
             
             if response == 'y':
-                print("    ✓ PASS: Convention matches expectation")
+                print("    [OK] PASS: Convention matches expectation")
             elif response == 'n':
-                print("    ✗ FAIL: Convention does NOT match expectation")
+                print("    [X] FAIL: Convention does NOT match expectation")
                 print("\n" + "!" * 70)
                 print("CONVENTION MISMATCH DETECTED!")
                 print("The geometry calculations may need adjustment.")
@@ -118,7 +124,7 @@ def test_ptz_convention(hostname: str):
                 print("    ? Unknown response, continuing...")
                 
         except Exception as e:
-            print(f"    ✗ ERROR: {type(e).__name__}: {e}")
+            print(f"    [X] ERROR: {type(e).__name__}: {e}")
             cont = input("\nContinue despite error? (y/n): ").strip().lower()
             if cont != 'y':
                 print("Test aborted by user.")
@@ -128,7 +134,7 @@ def test_ptz_convention(hostname: str):
     print("PTZ CONVENTION TEST COMPLETE")
     print("=" * 70)
     print("\nSummary:")
-    print("- If all positions matched expectations: Offset correction is CORRECT ✓")
+    print("- If all positions matched expectations: Offset correction is CORRECT [OK]")
     print(f"- PTZ hardware offset applied: {PTZ_OFFSET_DEG}°")
     print("- If positions still off: Adjust PTZ_OFFSET_DEG in geometry.py")
     print("\nNext steps:")

@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+# Authors: Thor Lemke, Sally Hyun Hahm, Matteo Corrado
+# Last Update: 11/19/2025
+# Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li
+# Purpose: PTZ ImageClient configuration test verifying Spot CAM service access and frame capture
+# Acknowledgements: Boston Dynamics Spot SDK ImageClient, Claude for test implementation
+
 """Quick test of SpotPTZImageClient with correct Spot CAM service configuration.
 
 Tests the corrected PTZ camera access using:
@@ -16,7 +22,7 @@ import bosdyn.client.util
 from bosdyn.client import spot_cam
 
 from video_sources import SpotPTZImageClient
-from robot_io import create_robot
+from src.robot.io import create_robot
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -47,9 +53,9 @@ def main():
             success, frame, depth = ptz_source.read()
             
             if success:
-                logger.info(f"Frame {i+1}/{options.frames}: ✓ {frame.shape[1]}x{frame.shape[0]} pixels")
+                logger.info(f"Frame {i+1}/{options.frames}: [OK] {frame.shape[1]}x{frame.shape[0]} pixels")
             else:
-                logger.error(f"Frame {i+1}/{options.frames}: ✗ Failed to capture")
+                logger.error(f"Frame {i+1}/{options.frames}: [X] Failed to capture")
         
         logger.info("Test complete!")
 

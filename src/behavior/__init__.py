@@ -1,3 +1,9 @@
+# Authors: Thor Lemke, Sally Hyun Hahm, Matteo Corrado
+# Last Update: 11/19/2025
+# Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li
+# Purpose: Behavior module package initialization exposing comfort model and behavior planning utilities
+# Acknowledgements: Claude for module organization
+
 """Behavior planning and execution module.
 
 Translates perception data into comfort scores and robot behaviors.

@@ -1,13 +1,4 @@
-"""Geometry helpers for aiming PTZ.
-
-Two modes:
-- Bearing-only: map pixel to bearing using camera intrinsics (Kannala-Brandt or pinhole)
-    and frame transforms. Fallback to simple geometric projection if intrinsics unavailable.
-- Transform-based: unproject pixel to ray using SDK intrinsics, transform to BODY/PTZ
-    frame using transforms_snapshot, compute pan/tilt.
-
-References:
-- cameras.pixel_to_camera_ray: uses OpenCV fisheye undistortion for Kannala-Brandt
+# Authors: Thor Lemke, Sally Hyun Hahm, Matteo Corrado\n# Last Update: 11/19/2025\n# Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li\n# Purpose: Legacy geometry helpers for PTZ aiming - retained for reference (replaced by geometry.py)\n# Acknowledgements: Boston Dynamics SDK frame_helpers, Claude for bearing and transform mode logic\n\n"""Geometry helpers for aiming PTZ.\n\nTwo modes:\n- Bearing-only: map pixel to bearing using camera intrinsics (Kannala-Brandt or pinhole)\n    and frame transforms. Fallback to simple geometric projection if intrinsics unavailable.\n- Transform-based: unproject pixel to ray using SDK intrinsics, transform to BODY/PTZ\n    frame using transforms_snapshot, compute pan/tilt.\n\nReferences:\n- cameras.pixel_to_camera_ray: uses OpenCV fisheye undistortion for Kannala-Brandt
 - frame_helpers.get_a_tform_b: transform rays between coordinate frames
 - math_helpers: SDK angle normalization, quaternion operations, SE3Pose transforms
 - ImageSource.kannala_brandt / ImageSource.pinhole: intrinsics from SDK

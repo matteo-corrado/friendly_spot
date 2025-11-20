@@ -1,3 +1,11 @@
+# Authors: Thor Lemke, Sally Hyun Hahm, Matteo Corrado
+# Last Update: 11/19/2025
+# Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li
+# Purpose: Robot state monitoring and action classification for comfort model integration,
+# tracking locomotion state, velocity, and motion patterns to categorize robot behaviors
+# Acknowledgements: Boston Dynamics Spot SDK RobotStateClient for state polling patterns,
+# Claude for action classification logic and comfort model integration design
+
 """Monitor robot state and classify current action for comfort model.
 
 Uses RobotStateClient to poll the robot's velocity, locomotion state, and other

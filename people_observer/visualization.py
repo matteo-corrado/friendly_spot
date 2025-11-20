@@ -22,13 +22,7 @@ import cv2
 import numpy as np
 
 from .detection import Detection
-# Import from unified visualization
-import sys
-from pathlib import Path
-parent_dir = Path(__file__).parent.parent
-if str(parent_dir) not in sys.path:
-    sys.path.insert(0, str(parent_dir))
-from unified_visualization import create_depth_colormap, draw_detection_with_mask
+from .unified_visualization import create_depth_colormap, draw_detection_with_mask
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +47,6 @@ COLOR_TEXT_BG = (0, 0, 0)    # Black background for text
 COLOR_TEXT = (255, 255, 255)  # White text
 
 
-# Note: create_depth_colormap is now imported from unified_visualization
-# Keeping local implementation for backwards compatibility
 def create_depth_colormap_legacy(depth_img: np.ndarray, min_dist: float = 0.5, max_dist: float = 5.0) -> np.ndarray:
     """Convert depth image to color-coded visualization.
     
@@ -334,7 +326,7 @@ def save_annotated_frames(frames_dict: Dict[str, np.ndarray],
             if success and os.path.exists(filepath):
                 saved_count += 1
                 file_size = os.path.getsize(filepath)
-                logger.debug(f"  ✓ {filename} ({file_size:,} bytes)")
+                logger.debug(f"  [OK] {filename} ({file_size:,} bytes)")
             else:
                 failed_files.append(filename)
                 logger.error(f"  Failed to write {filename}")

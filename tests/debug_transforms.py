@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+# Authors: Thor Lemke, Sally Hyun Hahm, Matteo Corrado
+# Last Update: 11/19/2025
+# Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li
+# Purpose: Debug utility to print camera frame transforms including rotation matrices and position vectors
+# Acknowledgements: Boston Dynamics Spot SDK frame_helpers, Claude for transform debugging utility
+
 """Print camera frame transforms from Spot robot.
 
 Fetches image sources and prints the transform information for each camera,

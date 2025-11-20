@@ -1,3 +1,10 @@
+# Authors: Thor Lemke, Sally Hyun Hahm, Matteo Corrado
+# Last Update: 11/19/2025
+# Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li
+# Purpose: Integration bridge between people_observer tracking and friendly_spot perception modules
+# coordinating surround camera detection with PTZ-based emotion and gesture analysis
+# Acknowledgements: Claude for bridge architecture design
+
 """Integration helper for people_observer tracking with friendly_spot perception.
 
 This module provides a bridge between:

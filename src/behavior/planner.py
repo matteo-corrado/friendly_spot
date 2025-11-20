@@ -1,3 +1,10 @@
+# Authors: Thor Lemke, Sally Hyun Hahm, Matteo Corrado
+# Last Update: 11/19/2025
+# Course: COSC 69.15/169.15 at Dartmouth College in 25F with Professor Alberto Quattrini Li
+# Purpose: Comfort scoring and behavior selection logic aggregating perception outputs to determine
+# appropriate robot reactions and behaviors based on human comfort metrics
+# Acknowledgements: Claude for comfort model architecture and behavior planning logic
+
 """
 Comfort scoring and behavior selection logic for Friendly Spot.
 
@@ -274,8 +281,8 @@ TARGET_COMFORT: Dict[BehaviorLabel, float] = {
     BehaviorLabel.GO_CLOSE_SLOWLY: 0.7,
     BehaviorLabel.STAY: 0.6,
     BehaviorLabel.SIT: 0.46,
-    BehaviorLabel.BACK_AWAY_SLOWLY: 0.32,
-    BehaviorLabel.BACK_AWAY: 0.15,
+    BehaviorLabel.BACK_AWAY_SLOWLY: 0.23,
+    BehaviorLabel.BACK_AWAY: 0.0,
 }
 
 

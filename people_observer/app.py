@@ -30,7 +30,7 @@ parent_dir = Path(__file__).parent.parent
 if str(parent_dir) not in sys.path:
     sys.path.insert(0, str(parent_dir))
 
-from robot_io import create_robot, configure_stream
+from src.robot.io import create_robot, configure_stream
 from .config import RuntimeConfig, TRANSFORM_MODE
 from .cameras import fetch_image_sources
 from .tracker import run_loop

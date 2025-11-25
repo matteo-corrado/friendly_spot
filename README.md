@@ -10,7 +10,7 @@ A perception and behavior system enabling Boston Dynamics Spot to detect people,
 
 ## Overview
 
-This codebase was designed to implement a simple HRI pipeline on Spot with the intention of making it somewhat socially aware and reactive. The main code to run is friendly_spot_main, and all important dependencies should have been placed in src but there may still be a couple of issues with imports from other files that we haven't quite sorted out, so we reccommend running this code in this environment. Much of the code, particularly implementing on spot, was created with Claude AI's assistance, covering for gaps in our knowledege and enabling us to code more effectively under large time pressure. This does not change that the code is less handwritten than we would like, but we still believe we achieved a significant implementation in a very short time by effectively using the resources we had and crediting them appropriately. All high level design was done by us beforehand.
+This codebase was designed to implement a simple HRI pipeline on Spot with the intention of making it somewhat socially aware and reactive. The main code to run is friendly_spot_main, and all important dependencies should have been placed in src but there may still be a couple of issues with imports from other files that we haven't quite sorted out, so we recommend running this code in this environment. Much of the code, particularly implementing on spot, was created with Claude AI's assistance, covering for gaps in our knowledege and enabling us to code more effectively under large time pressure. This does not change that the code is less handwritten than we would like, but we still believe we achieved a significant implementation in a very short time by effectively using the resources we had and crediting them appropriately. All high level design was done by us beforehand.
 
 ## Features
 
@@ -210,7 +210,7 @@ python friendly_spot_main.py --robot 192.168.80.3
 **PTZ Tracking Only** (no behaviors):
 
 ```powershell
-python friendly_spot_main.py --robot 192.168.80.3 --ptz-only
+python friendly_spot_main.py --robot 192.168.80.3 --no-execute
 ```
 
 ## References
@@ -222,26 +222,18 @@ python friendly_spot_main.py --robot 192.168.80.3 --ptz-only
 - [Robot Command](https://dev.bostondynamics.com/python/bosdyn-client/src/bosdyn/client/robot_command)
 
 ### Computer Vision
-- [YOLOv8 Documentation](https://docs.ultralytics.com/)
+- [YOLOv11 Documentation](https://docs.ultralytics.com/)
 - [OpenCV Tutorials](https://docs.opencv.org/4.x/d9/df8/tutorial_root.html)
 
 ### Robotics Theory
 - [Proxemics (Social Distance)](https://en.wikipedia.org/wiki/Proxemics)
-- [Human-Robot Interaction](https://www.springer.com/gp/book/9783319472973)
+- [Human-Robot Interaction](https://human-robot-interaction.org/wp-content/uploads/2024/08/human-robot-interaction-second-edition-compressed.pdf))
 
 ---
-
-## License
-
-MIT License - see LICENSE file for details.
 
 ## Acknowledgements
 
 - **Boston Dynamics**: Spot SDK and examples (especially fetch.py)
-- **Ultralytics**: YOLOv8 person detection
+- **Ultralytics**: YOLOv11 person detection
 - **Dartmouth College**: COSC 69.15/169.15 course support
 - **Professor Alberto Quattrini Li**: Course instruction and guidance
-
----
-
-**Questions or Issues?** Open an issue on GitHub or contact the authors.

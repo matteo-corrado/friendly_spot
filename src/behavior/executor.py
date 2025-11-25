@@ -299,7 +299,7 @@ class BehaviorExecutor:
             # Check robot is powered on before movement commands
             if behavior in [BehaviorLabel.GO_CLOSE, BehaviorLabel.GO_CLOSE_SLOWLY,
                           BehaviorLabel.BACK_AWAY, BehaviorLabel.BACK_AWAY_SLOWLY,
-                          BehaviorLabel.STAY]:
+                          BehaviorLabel.STAY, BehaviorLabel.SIT]:
                 if not self.robot.is_powered_on():
                     logger.warning("Robot not powered on - standing up first...")
                     if not self._stand():
@@ -615,7 +615,7 @@ class BehaviorExecutor:
             max_vel_se2 = geometry_pb2.SE2Velocity(linear=max_vel_linear, angular=0.8)
             vel_limit = geometry_pb2.SE2VelocityLimit(max_vel=max_vel_se2)
             params = RobotCommandBuilder.mobility_params()
-            params.vel_limit.CopyFrom(vel_limit)
+            params.vel_limit = vel_limit
             
             # Send trajectory command
             move_cmd = RobotCommandBuilder.synchro_se2_trajectory_command(
